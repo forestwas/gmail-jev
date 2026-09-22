@@ -1,0 +1,32 @@
+# Secrets and local credentials
+.env
+credentials.json
+token.json
+clients.local.json
+
+# Local Python environment
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.Python
+
+# Runtime state and locks
+*.lock
+live_history_state.json
+live_state.json
+
+# Decision / validation logs (may contain email metadata)
+*.log
+*.jsonl
+
+# Migration / cleanup snapshots
+*snapshot*
+migration-run-batch-*.log
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.bak
+*.swp

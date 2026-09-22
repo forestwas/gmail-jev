@@ -1,0 +1,14 @@
+{
+  "clients": [
+    {
+      "name": "Example Client",
+      "domains": [
+        "example-client.com"
+      ],
+      "keywords": [
+        "Example Product",
+        "Example Project"
+      ]
+    }
+  ]
+}
