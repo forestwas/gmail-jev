@@ -1,233 +1,174 @@
-# Gmail + Jev Inbox Triage
+# gmail-jev
 
-Open-source **Gmail inbox triage** powered by [TypeSafe](https://typesafe.ai) **Jev** (System One).
+Gmail inbox helper built around [TypeSafe](https://typesafe.ai) Jev.
 
-It reads threads from your inbox, asks Jev for typed judgments (not free-form chat), then applies a fixed set of workflow labels — and optionally archives mail that does not need a reply or action.
+You run it on your own computer. It looks at conversations already in your Gmail account, asks Jev a few structured questions, then puts on labels like Reply, Clients, or Finance. If something looks safe to leave Inbox, it can move it out. Nothing in this repo sends mail for you.
 
-This repository is a cleaned, shareable version of a private production system. It does **not** ship credentials, mailbox contents, decision logs, or runtime state.
+This is the public version of a tool I used privately. Secrets, real mailbox data, and run logs are not included.
 
----
+## Screenshot
 
-## How it looks
+![Gmail with numbered workflow labels](docs/inbox-preview.png)
 
-After processing, Gmail shows numbered workflow labels in the sidebar and as colored pills on each thread. A thread can receive more than one label (for example **Clients** + **Calendar**, or **Action Required** + **Finance**).
+Same labels show up in the left sidebar and as colored chips on each row. One conversation can have more than one label.
 
-![Gmail inbox with numbered workflow labels applied by Jev triage](docs/inbox-preview.png)
+## Pick a setup path
 
----
-
-## Table of contents
-
-1. [Who this is for](#who-this-is-for)
-2. [What you will need](#what-you-will-need)
-3. [Path A — Do it yourself](#path-a--do-it-yourself)
-4. [Path B — Set up with an AI assistant](#path-b--set-up-with-an-ai-assistant)
-5. [Quick start (checklist)](#quick-start-checklist)
-6. [Step-by-step setup](#step-by-step-setup)
-7. [First safe run (dry-run)](#first-safe-run-dry-run)
-8. [Apply labels for real](#apply-labels-for-real)
-9. [Continuous automation](#continuous-automation)
-10. [Workflow labels](#workflow-labels)
-11. [How classification works](#how-classification-works)
-12. [Customize labels, rules, and prompts](#customize-labels-rules-and-prompts)
-13. [Configuration reference](#configuration-reference)
-14. [Project layout](#project-layout)
-15. [Migration helpers](#migration-helpers)
-16. [Security](#security)
-17. [FAQ](#faq)
-18. [License](#license)
-
----
-
-## Who this is for
-
-| You are… | Start here |
+| You | Go here |
 | --- | --- |
-| Prefer to follow docs yourself | [Path A — Do it yourself](#path-a--do-it-yourself) |
-| Prefer ChatGPT / Claude / Cursor to drive the setup | [Path B — Set up with an AI assistant](#path-b--set-up-with-an-ai-assistant) |
-| Tuning behavior later | [Customize labels, rules, and prompts](#customize-labels-rules-and-prompts) + [FAQ](#faq) |
-| Migrating an old label scheme | [Migration helpers](#migration-helpers) |
+| Okay with Terminal + Google Cloud yourself | [Path A](#path-a-do-it-yourself) |
+| Prefer ChatGPT / Claude / Cursor to walk you through it | [Path B](#path-b-use-an-assistant-simple-english) |
+| Want to change rules later | [Customize](#customize) |
+| Old labels to clean up | [Migration](#migration) |
 
-You should be comfortable doing **one** of the following:
+You only need one path.
 
-- Handling these steps yourself: running terminal commands, creating a Google Cloud project and downloading OAuth credentials, and editing a few Python/config files if you want custom labels or thresholds  
-  → **Guide:** [Path A — Do it yourself](#path-a--do-it-yourself) (then [Quick start](#quick-start-checklist) and [Step-by-step setup](#step-by-step-setup))
-- **or** walking through the same steps with an AI assistant (ChatGPT, Claude, Cursor, etc.) without needing deep technical knowledge or hand-editing code yourself  
-  → **Guide:** [Path B — Set up with an AI assistant](#path-b--set-up-with-an-ai-assistant)
-
-You do **not** need to train a model. Jev is used through the TypeSafe API.
-
-> **Caution — your responsibility:** Email often contains highly sensitive personal, financial, legal, and business information. This software runs under **your** Google account and API keys, can read message content, and can change labels / archive mail. Review the setup, start with dry-run, and only enable live writes if you accept the privacy, security, and operational risks. The authors are not responsible for data exposure, mis-labeling, or mailbox changes caused by your configuration or use.
+**Before you start:** mail can hold private stuff (money, work, personal life). This app uses *your* Google login and *your* TypeSafe key. It can change labels and take mail out of Inbox. Try dry-run first. You are responsible for how you use it.
 
 ---
 
-## What you will need
+## What you need
 
-### Accounts and keys
-
-| Dependency | Where to get it | What you create locally |
+| Thing | Where | Local file |
 | --- | --- | --- |
-| **TypeSafe API key** | [typesafe.ai](https://typesafe.ai) — create an account and API key | Put the key in `.env` as `TYPESAFE_API_KEY` |
-| **Google Cloud project** | [Google Cloud Console](https://console.cloud.google.com/) | Project with **Gmail API** enabled |
-| **OAuth Desktop client** | APIs & Services → Credentials → Create credentials → OAuth client ID → **Desktop app** | Download JSON and save as `credentials.json` in the project root |
-| **Gmail mailbox** | The Google account you authorize | First run creates `token.json` (gitignored) |
+| TypeSafe key | [typesafe.ai](https://typesafe.ai) | `.env` → `TYPESAFE_API_KEY` |
+| Google Cloud project + Gmail API on | [console.cloud.google.com](https://console.cloud.google.com/) | - |
+| OAuth “Desktop” client | Credentials → OAuth client ID → Desktop | `credentials.json` |
+| Your Gmail account | Browser login the first time | `token.json` (created for you) |
 
-### Software
+Software: Python 3.11+ (3.12 is fine), then `pip install -r requirements.txt`.
 
-| Dependency | Notes |
-| --- | --- |
-| **Python 3.11+** (3.12 recommended) | `python3 --version` |
-| **pip** + **venv** | Used to install `requirements.txt` |
-| Packages | `typesafe-sdk`, `python-dotenv`, Google API / auth libraries (see `requirements.txt`) |
-
-### Optional but useful
-
-| Item | Why |
-| --- | --- |
-| `clients.local.json` | Boost **Clients** labeling for known domains/keywords |
-| `MAILBOX_OWNER_NAME` | Makes Jev prompts use your name (“Alex”) instead of “the mailbox owner” |
-| cron or launchd | Run live/backfill workers automatically |
+Optional: `clients.local.json` (copy from `clients.example.json`) so known client domains/keywords get a Clients label boost. Optional: `MAILBOX_OWNER_NAME=Alex` in `.env`.
 
 ---
 
-## Path A — Do it yourself
+## Path A: do it yourself
 
-Use this path if you are fine with the terminal, Google Cloud Console, and light config editing.
+1. Read [What you need](#what-you-need).
+2. Use the [checklist](#checklist) and [step by step](#step-by-step).
+3. First run with dry-run ([below](#try-a-dry-run-first)).
+4. Only then turn writes on.
+5. Optional: [workers](#keep-it-running).
 
-1. Skim [What you will need](#what-you-will-need) so you know which accounts/keys to create.  
-2. Follow the [Quick start (checklist)](#quick-start-checklist).  
-3. Use [Step-by-step setup](#step-by-step-setup) for Google Console, TypeSafe, and install details.  
-4. Always start with a [dry-run](#first-safe-run-dry-run) before [applying labels](#apply-labels-for-real).  
-5. When you want automation, see [Continuous automation](#continuous-automation).  
-6. To change behavior later, see [Customize labels, rules, and prompts](#customize-labels-rules-and-prompts).
-
-Keep secrets out of chat logs and git — see [Security](#security).
+Don’t put keys into git or into a public chat. See [Privacy notes](#privacy-notes).
 
 ---
 
-## Path B — Set up with an AI assistant
+## Path B: use an assistant (simple English)
 
-Use this path if you want ChatGPT, Claude, Cursor, or a similar assistant to walk you through setup **without** needing to understand the codebase. You still click through Google / TypeSafe in the browser and approve what the assistant asks you to run.
+This path is for people who do **not** want to learn coding. If you can use ChatGPT, Claude, or Cursor, that is enough. The assistant will tell you what to click and what to paste. You still do the Google and TypeSafe steps in your browser. You decide when Gmail may change.
 
-### Rough sequence (no technical background required)
+### Rough steps
 
-1. **Open this repository** on GitHub and tell the assistant you want to install **gmail-jev** on your computer.  
-2. **Install helpers** the assistant asks for (usually Python). On Mac this is often “install Xcode command line tools” or Python from python.org — let the assistant choose for your OS.  
-3. **Clone the project** — the assistant gives you a pasteable command; you run it in Terminal (or let Cursor Agent run it).  
-4. **Create a TypeSafe API key** at [typesafe.ai](https://typesafe.ai) and paste it only into a local `.env` file (never into a public chat if you can avoid it; prefer Cursor/local tools that keep secrets on your machine).  
-5. **Create Google Cloud OAuth credentials** — the assistant should open/guide [Google Cloud Console](https://console.cloud.google.com/): enable Gmail API → OAuth consent screen → Desktop OAuth client → download JSON → rename/save as `credentials.json` in the project folder.  
-6. **Install Python packages** inside a virtual environment (assistant provides the commands).  
-7. **Run smoke tests** (`jev_test.py`, `gmail_test.py`) and complete the browser Google login when it opens.  
-8. **Dry-run first** on a few threads (`DRY_RUN=true`) and ask the assistant to explain the proposed labels in plain language.  
-9. **Only then** allow live labeling (`DRY_RUN=false`).  
-10. **Optional:** ask the assistant to set up a schedule (cron / launchd) using the examples in this README.
+1. Open this GitHub page and say you want to install **gmail-jev** on your computer.
+2. Install whatever the assistant asks for (often Python). Let it pick the right steps for Mac or Windows.
+3. Download the project folder (clone). The assistant gives you the command.
+4. Make a TypeSafe account and key at [typesafe.ai](https://typesafe.ai). Put the key only in a local `.env` file on your computer. Do not paste the key into a public chat if you can avoid it.
+5. In [Google Cloud](https://console.cloud.google.com/), turn on Gmail API, set up the consent screen, create a Desktop OAuth client, download the JSON, save it as `credentials.json` next to the project files.
+6. Install the Python packages (assistant gives commands).
+7. Run the small tests. A browser window may ask you to allow Gmail access. Say yes for your own account.
+8. Run a **practice mode** first (`DRY_RUN=true`). Look at the suggested labels. Nothing should change in Gmail yet.
+9. When you are happy, allow real labeling (`DRY_RUN=false`) on a small batch.
+10. Later you can ask the assistant to schedule the workers if you want.
 
-### Safety rules to tell the assistant (copy this)
-
-```text
-Rules for helping me set up https://github.com/forestwas/gmail-jev :
-- Never commit .env, credentials.json, token.json, or clients.local.json
-- Never ask me to paste API keys or email contents into a public chat
-- Always use DRY_RUN=true until I explicitly say I want live Gmail writes
-- Prefer small MAX_RESULTS (like 5–10) for the first runs
-- Explain each command in one plain-English sentence before I run it
-- If something fails, diagnose from the error text; do not skip security steps
-```
-
-### Example prompts
-
-**1) Kickoff (any assistant)**
+### Text to give your assistant
 
 ```text
-I want to install and run this project on my Mac:
-https://github.com/forestwas/gmail-jev
+Help me set up https://github.com/forestwas/gmail-jev
 
-I am not technical. Guide me one step at a time.
-Start by checking whether Python 3.11+ is installed, then clone the repo.
-Do not modify Gmail yet. We will stay in DRY_RUN until I say otherwise.
-Follow the safety rules: no committing secrets, no pasting my API key into chat.
+Rules:
+- Do not put .env, credentials.json, token.json, or clients.local.json into git
+- Do not ask me to paste my API key or my emails into a public chat
+- Keep DRY_RUN=true until I clearly say I want real Gmail changes
+- First runs: only 5 to 10 conversations
+- Before each command, explain in one short plain sentence what it does
+- If something fails, fix from the error. Do not skip safety steps
 ```
 
-**2) TypeSafe + Google credentials**
+### Example things you can paste
+
+**Start**
 
 ```text
-Next I need a TypeSafe API key and Google Desktop OAuth credentials for Gmail.
-Walk me through the browser clicks for:
-1) creating a TypeSafe API key
-2) enabling Gmail API in Google Cloud
-3) OAuth consent screen (Testing + my account as test user)
-4) creating a Desktop OAuth client and downloading credentials.json
-Tell me exactly where to save credentials.json and how to create .env
-from .env.example without showing my secret values back to me.
+I want to install https://github.com/forestwas/gmail-jev on my computer.
+I am not a programmer. Guide me one step at a time.
+Check Python, then download the project.
+Do not change Gmail yet. Stay in DRY_RUN.
+Do not commit secrets. Do not ask me to paste my API key into chat.
 ```
 
-**3) First dry-run**
+**Accounts**
 
 ```text
-Packages are installed and credentials.json / .env exist locally.
-Give me the exact commands to:
-1) run jev_test.py
-2) run gmail_test.py
-3) dry-run main.py on 5 threads
-Then help me interpret validation.jsonl in plain English.
-Do not set DRY_RUN=false.
+I need a TypeSafe API key and Google Desktop login files for Gmail.
+Click-by-click please:
+1) TypeSafe key
+2) turn on Gmail API
+3) consent screen (Testing, add me as test user)
+4) Desktop OAuth client, download credentials.json
+Tell me where to save credentials.json and how to make .env from .env.example
+without repeating my secret values back to me.
 ```
 
-**4) Go live (only when you are ready)**
+**Practice run**
 
 ```text
-I reviewed the dry-run results and accept the risk of labeling my mailbox.
-Give me the safest command to process a small batch live
-(DRY_RUN=false, MAX_RESULTS=10). Explain what will change in Gmail
-before I run it.
+Install is done. credentials.json and .env are on my machine.
+Give exact commands for:
+1) jev_test.py
+2) gmail_test.py
+3) main.py dry-run on 5 conversations
+Explain the result file in simple English.
+Do not turn DRY_RUN off.
 ```
 
-**5) Cursor-specific (agent can edit files for you)**
+**Real labels (only when ready)**
 
 ```text
-Open this repo and set it up for me locally.
-Create .env from .env.example (I will paste TYPESAFE_API_KEY into the file myself).
-Do not commit secrets. Keep DRY_RUN=true.
-After install, run the unit tests and a 5-thread dry-run, then summarize results.
+I checked the practice results. I accept that labels may change in my Gmail.
+Give the safest small live command (DRY_RUN=false, MAX_RESULTS=10).
+Tell me what will change before I run it.
 ```
 
-### After Path B succeeds
+**Cursor**
 
-You can optionally skim [Step-by-step setup](#step-by-step-setup) later for reference, or stay with the assistant for [continuous workers](#continuous-automation) and [customization](#customize-labels-rules-and-prompts).
+```text
+Set up this repo on my machine.
+Make .env from .env.example (I will type TYPESAFE_API_KEY myself).
+No secrets in git. Keep DRY_RUN=true.
+Run unit tests and a 5-conversation dry-run, then summarize.
+```
+
+When Path B works, you can ignore the long DIY pages, or ask the assistant to keep helping with [workers](#keep-it-running) and [customize](#customize).
 
 ---
 
-## Quick start (checklist)
+## Checklist
 
-For Path A (DIY). Path B users can treat this as a progress list the assistant should complete with you.
+Handy for Path A. Path B people can tick the same boxes with their assistant.
 
-Use this as a progress tracker:
-
-1. [ ] Clone the repo and create a Python virtualenv  
-2. [ ] Install dependencies from `requirements.txt`  
-3. [ ] Create a TypeSafe API key → put it in `.env`  
-4. [ ] Enable Gmail API + create Desktop OAuth client → save `credentials.json`  
-5. [ ] (Optional) Copy `clients.example.json` → `clients.local.json` and edit  
-6. [ ] Run `python jev_test.py` and `python gmail_test.py`  
-7. [ ] Run a **dry-run**: `DRY_RUN=true MAX_RESULTS=10 python main.py`  
-8. [ ] Review `validation.jsonl`  
-9. [ ] Run for real: `DRY_RUN=false python main.py`  
-10. [ ] (Optional) Schedule `live_worker.py` / `backfill_worker.py`
+1. [ ] Clone repo, make `.venv`, `pip install -r requirements.txt`
+2. [ ] TypeSafe key in `.env`
+3. [ ] Gmail API + Desktop OAuth → `credentials.json`
+4. [ ] Optional `clients.local.json`
+5. [ ] `python jev_test.py` and `python gmail_test.py`
+6. [ ] `DRY_RUN=true MAX_RESULTS=10 python main.py`
+7. [ ] Check `validation.jsonl`
+8. [ ] `DRY_RUN=false` when you are ready
+9. [ ] Optional workers
 
 ---
 
-## Step-by-step setup
+## Step by step
 
-Detailed Path A instructions. Path B assistants can follow the same steps while explaining them in plain language.
-
-### 1. Get the code
+### Get the code
 
 ```bash
 git clone https://github.com/forestwas/gmail-jev.git
 cd gmail-jev
 ```
 
-### 2. Create a virtual environment and install packages
+### Python env
 
 ```bash
 python3 -m venv .venv
@@ -235,23 +176,18 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-Or with the project metadata:
+Or: `pip install -e .`
 
-```bash
-pip install -e .
-```
+### TypeSafe key
 
-### 3. Get a TypeSafe API key
-
-1. Open [typesafe.ai](https://typesafe.ai) and create an account.  
-2. Create an API key in the dashboard.  
-3. Keep it private — treat it like a password.
+1. Account + key on [typesafe.ai](https://typesafe.ai).
+2. Keep the key private.
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env`:
+Example `.env`:
 
 ```env
 TYPESAFE_API_KEY=your_key_here
@@ -260,44 +196,30 @@ DRY_RUN=true
 MAX_RESULTS=100
 ```
 
-`main.py` loads `.env` automatically via `python-dotenv`.
+### Google Cloud
 
-### 4. Set up Google Cloud + Gmail OAuth
+Once per project / mailbox:
 
-Do this once per Google Cloud project / mailbox.
+1. [Google Cloud Console](https://console.cloud.google.com/) → new or existing project.
+2. APIs & Services → Library → enable **Gmail API**.
+3. OAuth consent screen. External is common for a personal Gmail. Add yourself as a test user while status is Testing.
+4. **Heads-up:** in Testing, Google often expires the grant after about **7 days**. Workers stop until you log in again (`python gmail_test.py` or `main.py`). For always-on setups, publish the app or plan to re-login.
+5. Credentials → Create credentials → OAuth client ID → **Desktop app** → download JSON.
+6. Save it in the project folder as `credentials.json`.
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com/).  
-2. Create a project (or select one).  
-3. Open **APIs & Services → Library**, search for **Gmail API**, click **Enable**.  
-4. Open **APIs & Services → OAuth consent screen**.  
-   - Choose **External** (or Internal if you use Google Workspace and it fits your org).  
-   - Fill required app name / support email.  
-   - Add your Google account as a **test user** while the app is in Testing.  
-   - **Important:** While the OAuth app remains in **Testing**, Google expires test-user grants after about **7 days** (including refresh tokens). Scheduled workers will then fail until you re-authorize (`python gmail_test.py` or run `main.py` and complete the browser flow again). For long-lived unattended use, publish the app or plan to re-auth periodically.  
-5. Open **APIs & Services → Credentials → Create credentials → OAuth client ID**.  
-   - Application type: **Desktop app**.  
-   - Create, then **Download JSON**.  
-6. Save the downloaded file in the project root as:
-
-```text
-credentials.json
-```
-
-The app requests this scope:
+Scope used:
 
 ```text
 https://www.googleapis.com/auth/gmail.modify
 ```
 
-**What the code does vs what the token can do:** `gmail-jev` only uses this token to read threads and change labels / Inbox membership. It contains **no** send-mail code. However, Google documents [`gmail.modify`](https://developers.google.com/workspace/gmail/api/auth/scopes) as allowing *read, compose, and send*. Treat `token.json` as a high-privilege secret and protect it accordingly.
+This project’s code only labels and (optionally) takes mail out of Inbox. It does not send mail. Google’s docs for that scope are wider (they also mention compose/send), so treat `token.json` like a password.
 
-### 5. Optional: known clients file
+### Known clients (optional)
 
 ```bash
 cp clients.example.json clients.local.json
 ```
-
-Edit domains and keywords for companies you already work with:
 
 ```json
 {
@@ -311,18 +233,18 @@ Edit domains and keywords for companies you already work with:
 }
 ```
 
-If a domain or keyword appears in the subject, body, or From/To/Cc headers, the thread is forced toward **`04 — Clients`** (see routing rules below).
+Domains match From/To/Cc addresses. Keywords match subject/body. A hit pushes toward `04 — Clients`.
 
-### 6. Smoke tests
+### Smoke tests
 
 ```bash
-python jev_test.py      # TypeSafe / Jev connectivity
-python gmail_test.py    # Opens a browser for OAuth; prints your Gmail profile
+python jev_test.py
+python gmail_test.py
 ```
 
-After a successful Gmail login, `token.json` appears in the project root (gitignored). Reuse it on later runs; refresh happens automatically when possible.
+`gmail_test.py` opens a browser, then writes `token.json` (gitignored).
 
-### 7. Unit tests (no network)
+### Unit tests (offline)
 
 ```bash
 python -m unittest discover -v
@@ -330,385 +252,230 @@ python -m unittest discover -v
 
 ---
 
-## First safe run (dry-run)
+## Try a dry-run first
 
-Dry-run classifies threads and writes proposals **without** changing Gmail labels.
+Dry-run suggests labels and writes `validation.jsonl`. It should not change Gmail.
 
 ```bash
 DRY_RUN=true MAX_RESULTS=10 python main.py
 ```
 
-What happens:
+Code default is also dry-run if the env var is missing. Check a few lines in `validation.jsonl` before going live.
 
-- Workflow labels are **not** created/applied in Gmail (placeholder IDs are used in memory).  
-- Results are appended to **`validation.jsonl`**.  
-- Console output shows subject, Jev answers, and proposed labels.
-
-Read the JSONL file and spot-check a few threads before enabling writes.
-
----
-
-## Apply labels for real
+## Turn on real labeling
 
 ```bash
-# In .env you can set DRY_RUN=false, or override for one run:
 DRY_RUN=false MAX_RESULTS=50 python main.py
 ```
 
-What happens:
+Then Gmail may get new labels, applied labels, and some Inbox removals. Results go to `decisions.jsonl`.
 
-- Missing workflow labels are **created** in Gmail if needed.  
-- Matching labels are applied to each processed thread.  
-- Some threads may leave Inbox (archive) when rules say it is safe.  
-- Decisions append to **`decisions.jsonl`**.
-
-Default search: inbox threads that do **not** already have any of the workflow labels. That way each thread is processed once until you strip labels (or a worker re-queues it).
+By default it only picks Inbox conversations that do not already have these workflow labels.
 
 ---
 
-## Continuous automation
+## Keep it running
 
-| Script | Role |
+| Script | What it does |
 | --- | --- |
-| `live_worker.py` | Recent inbox (`newer_than:1d`). Uses Gmail history to re-queue threads that got new messages. |
-| `backfill_worker.py` | Older unprocessed inbox (`older_than:1d`), one batch per run. |
+| `live_worker.py` | Last day of Inbox (`newer_than:1d`). Re-queues threads that got a new message. |
+| `backfill_worker.py` | Older unlabeled Inbox (`older_than:1d`), one batch per run. |
 
-Both call `main.py` with an appropriate `GMAIL_QUERY`, share a single `.worker.lock` so they cannot run at the same time, and exit non-zero on failure.
+Both call `main.py`, share `.worker.lock`, and exit with an error code if something fails.
 
-**Platform note:** continuous workers use `fcntl` file locks and currently target macOS/Linux. `main.py` itself can run on Windows; scheduled workers do not.
+Workers need `fcntl` (macOS/Linux). Plain `main.py` is fine on Windows; the schedulers are not.
 
-Suggested cadence: live every few minutes; backfill hourly (or less often).
+Example: live every few minutes, backfill once an hour.
 
-### Environment variables for workers
-
-`main.py` loads `.env`, but cron/launchd often need an explicit wrapper. Example templates live in `scripts/`:
+Wrappers (copy to repo root):
 
 ```bash
 cp scripts/run_live.sh.example run_live.sh
 cp scripts/run_backfill.sh.example run_backfill.sh
 chmod +x run_live.sh run_backfill.sh
-# edit if needed; keep real wrappers local (they source .env)
 ```
 
-### cron example
+cron:
 
 ```cron
 */5 * * * *  /path/to/gmail-jev/run_live.sh
 0 * * * *    /path/to/gmail-jev/run_backfill.sh
 ```
 
-### launchd example (macOS)
-
-Save `~/Library/LaunchAgents/com.example.gmail-jev.live.plist`:
-
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>com.example.gmail-jev.live</string>
-  <key>WorkingDirectory</key>
-  <string>/path/to/gmail-jev</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>/path/to/gmail-jev/run_live.sh</string>
-  </array>
-  <key>StartInterval</key>
-  <integer>300</integer>
-  <key>StandardOutPath</key>
-  <string>/path/to/gmail-jev/live-launchd-out.log</string>
-  <key>StandardErrorPath</key>
-  <string>/path/to/gmail-jev/live-launchd-error.log</string>
-</dict>
-</plist>
-```
-
-```bash
-chmod +x /path/to/gmail-jev/run_live.sh
-launchctl load ~/Library/LaunchAgents/com.example.gmail-jev.live.plist
-```
-
-Prefer a wrapper script that sources `.env` over putting secrets inside the plist.
+launchd (macOS): point `ProgramArguments` at `run_live.sh`, `StartInterval` 300, working directory = project folder. Prefer loading secrets from `.env` via the wrapper, not hardcoding them in the plist.
 
 ---
 
-## Workflow labels
+## Labels
 
-These names are the system’s contract. Number prefixes keep them sorted in Gmail’s label list.
+Numbers keep them sorted in Gmail.
 
 | Label | Meaning |
 | --- | --- |
-| `01 — Reply` | Human conversation likely needs a written reply |
-| `02 — Action Required` | Concrete non-reply action needed |
-| `03 — Waiting` | You already acted; waiting on someone else |
-| `04 — Clients` | Known client match or high-confidence client relationship |
-| `05 — Leads` | Genuine sales / project inquiry |
-| `06 — Finance` | Billing, invoices, receipts, insurance, etc. |
-| `07 — Calendar` | Real calendar invite / calendar-system event (or MIME `.ics` evidence) |
+| `01 — Reply` | Someone likely expects a reply |
+| `02 — Action Required` | You need to do something other than reply |
+| `03 — Waiting` | Ball is in their court |
+| `04 — Clients` | Known or likely client work |
+| `05 — Leads` | Real sales / project inquiry |
+| `06 — Finance` | Bills, receipts, insurance, etc. |
+| `07 — Calendar` | Real invite / calendar event (or `.ics` on the latest message) |
 | `08 — Read Later` | Newsletters / bulk reading |
-| `09 — System` | System, security, or file-share notifications |
-| `97 — Other` | Processed successfully, but no useful class matched |
-| `98 — Review` | Model was uncertain; needs a human look |
+| `09 — System` | System / security / file-share noise |
+| `97 — Other` | Processed, no useful bucket |
+| `98 — Review` | Model was unsure |
 
-Label **colors** in Gmail are cosmetic. Set them in Gmail → Settings → Labels (or the label color picker). The automation only creates names; it does not set colors.
-
----
-
-## How classification works
-
-```
-live_worker / backfill_worker / manual main.py
-                    │
-                    ▼
-                 main.py
-           ┌────────┴────────┐
-           ▼                 ▼
-     Gmail API          TypeSafe Jev
-   (read thread)     (typed judgments)
-           │                 │
-           └────────┬────────┘
-                    ▼
-              routing.py
-         (thresholds → label names)
-                    ▼
-            apply labels / archive
-```
-
-For each thread, Jev answers questions such as:
-
-- **relationship** — client / lead / personal / other  
-- **message_type** — human_message, finance, calendar, newsletter, security, file_share, system, other  
-- **reply_needed**, **action_required**, **waiting_on_them**, **can_archive** (numeric confidence-style scores)  
-- **urgency**, **revenue_relevance** (logged; not required for core labels)
-
-Then deterministic code in `routing.py` turns those answers into label names and an archive decision.
-
-Special case: if the MIME tree contains `text/calendar` or an `.ics` part, **message type is forced to calendar** regardless of the model.
+Colors are set in Gmail’s UI. The scripts only create names.
 
 ---
 
-## Customize labels, rules, and prompts
+## How it works (short)
 
-### Change label **names**
+```
+worker or main.py
+      |
+      v
+   main.py  -->  Gmail (fetch + label)
+      |
+      +------>  TypeSafe Jev (structured answers)
+      |
+      v
+  routing.py (thresholds -> label names)
+```
 
-1. Edit `WORKFLOW_LABELS` in [`workflow.py`](workflow.py).  
-2. Update the same strings in [`routing.py`](routing.py) (`decide_label_names`).  
-3. Update Jev prompt text in [`main.py`](main.py) (`build_jev_questions`) if wording should match.  
-4. Update worker queries indirectly by keeping `WORKFLOW_LABELS` as the single list for exclusions.  
-5. Run unit tests.  
-6. In Gmail, rename or delete old labels manually if you no longer want them.
+Jev answers things like relationship, message type, reply/action/waiting/archive. `routing.py` turns that into labels. If the **latest** message has calendar MIME / `.ics`, type is forced to calendar.
 
-**Important:** Gmail label names must match the strings in code exactly (including the unicode em dash `—`).
+---
 
-### Change label **colors**
+## Customize
 
-In Gmail only (UI). No code change required.
+**Rename labels:** edit `WORKFLOW_LABELS` in `workflow.py` and the same strings in `routing.py`. Update prompts in `main.py` if needed. Names must match Gmail exactly (including the special dash character).
 
-### Change **routing thresholds** (when a label applies)
+**Colors:** Gmail settings only.
 
-Edit [`routing.py`](routing.py):
+**Thresholds:** `routing.py` (`MESSAGE_TYPE_THRESHOLDS`, reply/action/waiting cutoffs, archive rules). Then `python -m unittest discover -v`.
 
-| Knob | Default idea | File location |
+**Questions Jev gets:** `build_jev_questions()` in `main.py`. Set `MAILBOX_OWNER_NAME` so prompts use your name.
+
+**Which mail:** `GMAIL_QUERY`, or the live/backfill builders in `workflow.py` (`newer_than:1d` / `older_than:1d`). Batch size: `MAX_RESULTS`.
+
+**Clients file:** edit `clients.local.json` anytime.
+
+---
+
+## Config
+
+| Variable | Default | Notes |
 | --- | --- | --- |
-| Message-type confidence floors | e.g. finance `0.40`, calendar `0.60` | `MESSAGE_TYPE_THRESHOLDS` |
-| Relationship confidence | `0.55` for client/lead | `decide_label_names` |
-| Reply | `reply_needed >= 0.50` and human message | `decide_label_names` |
-| Action required | `0.70` generally, `0.50` for system/security/file_share | `decide_label_names` |
-| Waiting | `waiting_on_them >= 0.70` | `decide_label_names` |
-| Uncertainty → Review | relationship & message_type confidence both `< 0.55` | `decide_label_names` |
-| Archive newsletter | newsletter confidence `>= 0.65` | `should_archive_thread` |
-| Archive via can_archive | `can_archive >= 0.70` and low reply/action | `should_archive_thread` |
+| `TYPESAFE_API_KEY` | required | TypeSafe |
+| `MAILBOX_OWNER_NAME` | `the mailbox owner` | Prompt wording |
+| `DRY_RUN` | `true` | No Gmail writes until you set `false` |
+| `MAX_RESULTS` | `100` | Per `main.py` run |
+| `GMAIL_QUERY` | inbox minus workflow labels | Override search |
+| `KNOWN_CLIENTS_FILE` | `clients.local.json` | Client boosts |
+| `GMAIL_RETRY_ATTEMPTS` | `6` | Gmail retries |
+| `APPLY_MIGRATION_RESET` | `false` | Live label strip in `migration_reset.py` |
+| `APPLY_MIGRATION` | `false` | Live batches in `migration_runner.py` |
+| `MIGRATION_BATCH_SIZE` | `100` | |
+| `MIGRATION_PAUSE_SECONDS` | `60` | |
+| `MIGRATION_MAX_BATCHES` | `50` | |
 
-After edits:
+---
+
+## Files
+
+| File | Role |
+| --- | --- |
+| `main.py` | Main classifier |
+| `routing.py` | Label rules (tested offline) |
+| `workflow.py` | Label names + queries |
+| `gmail_utils.py` | MIME / headers |
+| `live_worker.py` / `backfill_worker.py` | Schedulers |
+| `migration_reset.py` / `migration_runner.py` | Cleanup / batch migrate |
+| `clients.example.json` | Client template |
+| `test_routing.py` | Unit tests |
+| `docs/inbox-preview.png` | Screenshot |
+
+---
+
+## Migration
 
 ```bash
-python -m unittest discover -v
-```
-
-### Change **what Jev is asked**
-
-Edit `build_jev_questions()` in [`main.py`](main.py).
-
-Tips:
-
-- Keep criteria mutually exclusive where possible.  
-- Use `MAILBOX_OWNER_NAME` so instructions say “Alex” instead of a generic owner.  
-- Prefer improving criteria text before adding more labels.
-
-### Change **which mail is fetched**
-
-| Goal | How |
-| --- | --- |
-| One-off custom search | `GMAIL_QUERY='in:inbox newer_than:7d' python main.py` |
-| Live window | `LIVE_QUERY` builder in `workflow.py` (`newer_than:1d`) |
-| Backfill window | `BACKFILL_QUERY` (`older_than:1d`) |
-| Batch size | `MAX_RESULTS` |
-
-### Change **known clients**
-
-Edit `clients.local.json` (or point `KNOWN_CLIENTS_FILE` elsewhere). No code deploy needed — next `main.py` run reloads the file.
-
----
-
-## Configuration reference
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `TYPESAFE_API_KEY` | _(required)_ | TypeSafe API access |
-| `MAILBOX_OWNER_NAME` | `the mailbox owner` | Name used in Jev prompt framing |
-| `DRY_RUN` | `true` (fail-closed) | Classify without Gmail writes; set `false` to apply |
-| `MAX_RESULTS` | `100` | Threads per `main.py` run |
-| `GMAIL_QUERY` | inbox excluding workflow labels | Override Gmail search |
-| `KNOWN_CLIENTS_FILE` | `clients.local.json` | Known-client boosts |
-| `GMAIL_RETRY_ATTEMPTS` | `6` | Retries for rate limits / transient errors |
-| `APPLY_MIGRATION_RESET` | `false` | Allow `migration_reset.py` to remove labels |
-| `APPLY_MIGRATION` | `false` | Allow `migration_runner.py` live Gmail writes |
-| `MIGRATION_BATCH_SIZE` | `100` | `migration_runner.py` batch size |
-| `MIGRATION_PAUSE_SECONDS` | `60` | Pause between migration batches |
-| `MIGRATION_MAX_BATCHES` | `50` | Safety stop for migration runner |
-
----
-
-## Project layout
-
-| Path | Role |
-| --- | --- |
-| `main.py` | Classification engine (Gmail + Jev + apply labels) |
-| `routing.py` | Pure label/archive decisions (unit-tested) |
-| `workflow.py` | Shared label names and search queries |
-| `gmail_utils.py` | MIME / header helpers |
-| `live_worker.py` | Recent-mail scheduler entrypoint |
-| `backfill_worker.py` | Older-mail batch entrypoint |
-| `migration_reset.py` | Audit / strip workflow labels |
-| `migration_runner.py` | Batch-process until inbox queue is empty |
-| `clients.example.json` | Template for known clients |
-| `test_routing.py` | Offline unit tests |
-| `docs/inbox-preview.png` | Screenshot used above |
-
----
-
-## Migration helpers
-
-Use these when changing taxonomies or reprocessing mail.
-
-```bash
-# Audit only (writes a local snapshot JSONL; does not change Gmail)
-python migration_reset.py
-
-# Remove current + legacy workflow labels from matching inbox threads
+python migration_reset.py                          # audit only
 APPLY_MIGRATION_RESET=true python migration_reset.py
 
-# Classify remaining inbox in batches WITHOUT writing labels (default)
-python migration_runner.py
-
-# Apply live label/archive writes in batches (explicit opt-in)
-APPLY_MIGRATION=true python migration_runner.py
+python migration_runner.py                         # dry-run batches
+APPLY_MIGRATION=true python migration_runner.py    # live writes
 ```
 
-`migration_runner.py` defaults to dry-run. It will **not** set `DRY_RUN=false` unless `APPLY_MIGRATION=true`. If Jev fails on threads, the runner exits non-zero instead of claiming “migration complete.”
-
-Snapshots and decision logs may contain thread IDs and subjects — keep them private (gitignored).
+`migration_runner.py` stays dry-run unless `APPLY_MIGRATION=true`. If Jev errors out, it fails instead of saying “done.” Keep snapshot/decision files private.
 
 ---
 
-## Security
+## Privacy notes
 
-> **Caution:** Mailboxes can contain passwords, contracts, medical or financial details, and private conversations. You are responsible for protecting credentials, reviewing what leaves your machine (API calls to TypeSafe/Google), and deciding whether this tool is appropriate for your data.
+Mail can include passwords, contracts, money stuff, and private talks. You own the risk: protect keys, know that TypeSafe/Google see what your run sends them, and decide if this tool fits your mailbox.
 
-**Never commit:**
+Never commit:
 
-- `.env`, `credentials.json`, `token.json`, `clients.local.json`  
-- `*.log`, `*.jsonl`, snapshots, lock files, mailbox exports  
+- `.env`, `credentials.json`, `token.json`, `clients.local.json`
+- logs, `*.jsonl`, snapshots, locks
 
-The included `.gitignore` covers these patterns. Before every push, confirm `git status` is clean of secrets.
-
-This tool can modify your mailbox (labels and inbox). Always dry-run first on a small `MAX_RESULTS`.
+`.gitignore` already lists these. Dry-run before large live batches.
 
 ---
 
 ## FAQ
 
-### Is this a hosted product?
+**Is this a cloud product?**  
+No. It runs where you install it.
 
-No. You run it on your machine (or your own server). Your mail and keys stay under your control.
+**Does it send or delete mail?**  
+The code does not send mail and does not hard-delete threads. It labels and can remove Inbox. The OAuth scope Google grants is still powerful; keep `token.json` safe. Docs: [Gmail scopes](https://developers.google.com/workspace/gmail/api/auth/scopes).
 
-### Will it send email or delete messages?
+**What is Jev?**  
+TypeSafe’s System One model. It returns structured answers your code can branch on, not a long chat essay. More: [docs.typesafe.ai](https://docs.typesafe.ai/).
 
-`gmail-jev` does **not** contain code that sends email or permanently deletes threads. It applies labels and may remove `INBOX` (archive).
+**Dry-run changed my labels anyway?**  
+With `DRY_RUN=true` (default), `main.py` should skip label writes, and `live_worker.py` only logs would-be re-queues. Double-check the env on that process, and that you did not set `APPLY_MIGRATION=true`.
 
-The OAuth scope it requests (`gmail.modify`) is still broader: Google documents it as allowing read, compose, and send. Protect `token.json` accordingly.
+**Unverified app warning?**  
+Normal in Testing. Add yourself as test user. Grants often last about a week; re-run `gmail_test.py` when they expire.
 
-### What is Jev / TypeSafe?
+**Windows?**  
+`main.py` yes. Continuous workers need macOS/Linux today.
 
-[TypeSafe](https://typesafe.ai) System One models return **typed judgments** (choices, yes/no-style scores, etc.) that software can branch on. Jev is the model used here. See the [TypeSafe docs](https://docs.typesafe.ai/).
+**`credentials.json` vs `token.json`?**  
+Client app file from Google vs your personal login token after the browser step. Both secret. `gmail_test.py` / `main.py` write `token.json`.
 
-### Dry-run still created labels in Gmail — why?
+**Quota errors?**  
+Lower `MAX_RESULTS`, slow migration pauses, space out workers.
 
-It should not. With `DRY_RUN=true` (the code default), `main.py` skips `threads.modify`, and `live_worker.py` only logs would-be re-queues instead of removing labels. If you see real label changes, confirm the process actually has `DRY_RUN=true` (and that you did not set `APPLY_MIGRATION=true` / `APPLY_MIGRATION_RESET=true`).
+**Nothing gets picked up?**  
+Already labeled; query too narrow; live only covers the last day; another process holds `.worker.lock`.
 
-### OAuth consent screen says the app is unverified
+**Reprocess one thread?**  
+Strip its workflow labels (or careful `migration_reset.py`), run `main.py` again. Live worker also re-queues when a new message arrives.
 
-Expected for personal/desktop use in Testing mode. Add your Google account as a test user. **Testing grants expire after about 7 days** — re-run `python gmail_test.py` (or `main.py`) to refresh authorization. For broader distribution you would need Google verification.
+**Several Gmail accounts?**  
+Separate folders (or separate tokens). Default layout expects files in the project root.
 
-### Does this run on Windows?
+**Rename Clients → Customers?**  
+Change strings in `workflow.py` + `routing.py`, migrate Gmail labels. Renaming only in Gmail leaves the old name in code.
 
-`main.py` / dry-runs can. Continuous `live_worker.py` / `backfill_worker.py` currently require `fcntl` (macOS/Linux).
+**Two labels on one mail?**  
+Normal. Context + action can both apply.
 
-### `credentials.json` vs `token.json`
+**Review empty or huge?**  
+Review only when unsure and nothing else matched. Tune prompts/thresholds if the balance feels wrong.
 
-| File | Meaning |
-| --- | --- |
-| `credentials.json` | OAuth **client** secrets from Google Cloud (app identity) |
-| `token.json` | **Your** authorized user token after browser login |
+**Known clients vs Jev?**  
+Domain/keyword hit forces the Clients path for relationship. Other labels can still apply.
 
-Both are secret. Only `credentials.json` is downloaded from Google; `token.json` is created locally by `gmail_test.py` or `main.py`.
+**Bugs?**  
+[GitHub issues](https://github.com/forestwas/gmail-jev/issues). Include command + dry-run yes/no + redacted console text. No raw mail bodies or tokens.
 
-### Gmail quota / rate limit errors
-
-The client retries transient `403`/`429`/5xx responses. If you still hit quotas, lower `MAX_RESULTS`, increase pauses in `migration_runner.py`, or space out worker schedules.
-
-### Threads are not being picked up
-
-Common causes:
-
-- They already have a workflow label (excluded by default query).  
-- `GMAIL_QUERY` is too narrow.  
-- Live worker only looks at `newer_than:1d` unless you run backfill / full `main.py`.  
-- Another process holds the shared lock file (`.worker.lock`).
-
-### How do I reprocess a thread?
-
-Remove its workflow labels in Gmail (or run `migration_reset.py` carefully), then run `main.py` again. The live worker also strips workflow labels when history reports a new message on an inbox thread, then re-runs classification.
-
-### Can I use multiple Gmail accounts?
-
-Yes, with separate working directories (or separate `token.json` / credential files and careful path management). This codebase assumes files in the project root by default.
-
-### Can I rename “Clients” to “Customers”?
-
-Yes — change the string in `workflow.py` and `routing.py` (and any docs). Create/migrate Gmail labels to match. Prefer a planned migration over renaming in Gmail only, or the code will create the new name as a second label.
-
-### Why do some threads get two labels?
-
-By design. Relationship/context labels (Clients, Leads, Finance, …) can combine with action labels (Reply, Action Required, Waiting).
-
-### Why is Review empty or huge?
-
-`98 — Review` is only used when the model is uncertain **and** no other label fired. If Review is huge, tighten prompts or lower uncertainty thresholds carefully. If empty, confidence is generally high enough to route elsewhere (including Other).
-
-### Does Known Clients override Jev?
-
-A domain/keyword hit forces the **Clients** label path for relationship. Jev still runs; other labels (Reply, Finance, etc.) can still apply from their own rules.
-
-### Where should I report issues?
-
-Open a GitHub issue on [forestwas/gmail-jev](https://github.com/forestwas/gmail-jev) with the command you ran, whether `DRY_RUN` was on, and a redacted snippet of console output (no raw email bodies or tokens).
-
-### Is production data in this repo?
-
-No. Do not copy production `.env`, tokens, decision logs, or mailbox exports into a public fork.
+**Any production mailbox data here?**  
+No. Don’t copy real `.env` / tokens / decision logs into a public fork.
 
 ---
 
