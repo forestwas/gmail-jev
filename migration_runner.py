@@ -8,6 +8,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from env_utils import env_flag
 from worker_lock import exclusive_worker_lock
 
 
@@ -17,10 +18,6 @@ PYTHON = VENV_PYTHON if VENV_PYTHON.exists() else Path(sys.executable)
 MAIN = ROOT / "main.py"
 DECISIONS = ROOT / "decisions.jsonl"
 VALIDATION = ROOT / "validation.jsonl"
-
-
-def env_flag(name, default="false"):
-    return os.getenv(name, default).lower() in {"1", "true", "yes"}
 
 
 def count_rows(path):

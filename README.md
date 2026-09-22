@@ -469,7 +469,7 @@ Jev answers things like relationship, message type, reply/action/waiting/archive
 | --- | --- | --- |
 | `TYPESAFE_API_KEY` | required | TypeSafe |
 | `MAILBOX_OWNER_NAME` | `the mailbox owner` | Prompt wording |
-| `DRY_RUN` | `true` | No Gmail writes until you set `false` |
+| `DRY_RUN` | `true` | No Gmail writes until you set `false` (typos like `tru` abort; only `true`/`false`/`1`/`0`/`yes`/`no`) |
 | `MAX_RESULTS` | `100` | Per `main.py` run |
 | `GMAIL_QUERY` | inbox minus workflow labels | Override search |
 | `KNOWN_CLIENTS_FILE` | `clients.local.json` | Client boosts |
@@ -553,7 +553,7 @@ With `DRY_RUN=true` (default), `main.py` should skip label writes, and `live_wor
 Normal in Testing. Add yourself as test user. Grants often last about a week; re-run `gmail_test.py` when they expire.
 
 **Windows?**  
-`main.py` yes. Continuous workers need macOS/Linux today.
+`main.py` yes. Continuous workers **and** migration helpers (`migration_runner.py` / `migration_reset.py`) need macOS/Linux today (they share a `fcntl`-based `.worker.lock`).
 
 **`credentials.json` vs `token.json`?**  
 Client app file from Google vs your personal login token after the browser step. Both secret. `gmail_test.py` / `main.py` write `token.json`.

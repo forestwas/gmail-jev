@@ -1,5 +1,6 @@
 import base64
 import ast
+import os
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -317,11 +318,56 @@ class LiveWorkerBehaviorTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(len(calls), 1)
 
+    def test_process_batches_refuses_success_when_query_never_empties(self):
+        import live_worker
+
+        def fake_run_main(query):
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = "classified some threads"
+            return result
+
+        with patch.object(live_worker, "run_main", side_effect=fake_run_main):
+            with patch.object(live_worker, "log"):
+                ok = live_worker.process_batches(
+                    "in:inbox",
+                    label="Recovery",
+                    dry_run=False,
+                    max_batches=3,
+                )
+
+        self.assertFalse(ok)
+
+    def test_process_batches_succeeds_when_query_empties(self):
+        import live_worker
+
+        outputs = [
+            "classified some",
+            "Inbox is empty.",
+        ]
+
+        def fake_run_main(query):
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = outputs.pop(0)
+            return result
+
+        with patch.object(live_worker, "run_main", side_effect=fake_run_main):
+            with patch.object(live_worker, "log"):
+                ok = live_worker.process_batches(
+                    "in:inbox",
+                    label="Recovery",
+                    dry_run=False,
+                    max_batches=5,
+                )
+
+        self.assertTrue(ok)
+        self.assertEqual(outputs, [])
+
     def test_run_recovery_strips_then_uses_shrinking_query(self):
         import live_worker
 
         gmail = MagicMock()
-        classify_calls = []
 
         with patch.object(
             live_worker,
@@ -347,7 +393,8 @@ class LiveWorkerBehaviorTests(unittest.TestCase):
         args, kwargs = batches.call_args
         self.assertEqual(args[0], RECOVERY_PROCESS_QUERY)
         self.assertEqual(kwargs.get("label") or args[1], "Recovery")
-        self.assertEqual(kwargs.get("max_batches"), 1)
+        # Safety cap only — not derived from candidate_count / 100.
+        self.assertEqual(kwargs.get("max_batches"), 50)
 
     def test_run_recovery_dry_run_skips_strip_and_loops_once(self):
         import live_worker
@@ -374,11 +421,10 @@ class LiveWorkerBehaviorTests(unittest.TestCase):
             dry_run=True,
         )
 
-    def test_run_recovery_scales_batches_for_large_candidate_sets(self):
+    def test_run_recovery_batch_cap_independent_of_candidate_count(self):
         import live_worker
 
         gmail = MagicMock()
-        # 250 candidates → ceil(250/100) = 3 batches
         candidates = [f"t{i}" for i in range(250)]
 
         with patch.object(
@@ -399,13 +445,50 @@ class LiveWorkerBehaviorTests(unittest.TestCase):
                     with patch.object(live_worker, "log"):
                         live_worker.run_recovery(gmail, dry_run=False)
 
-        self.assertEqual(batches.call_args.kwargs["max_batches"], 3)
+        self.assertEqual(batches.call_args.kwargs["max_batches"], 50)
+
+
+class EnvFlagTests(unittest.TestCase):
+    def test_missing_uses_default(self):
+        from env_utils import env_flag
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("DRY_RUN", None)
+            self.assertTrue(env_flag("DRY_RUN", "true"))
+            self.assertFalse(env_flag("APPLY_MIGRATION", "false"))
+
+    def test_accepted_truthy_values(self):
+        from env_utils import env_flag
+
+        for value in ("true", "TRUE", "1", "yes", " Yes "):
+            with patch.dict(os.environ, {"DRY_RUN": value}):
+                self.assertTrue(env_flag("DRY_RUN", "false"), value)
+
+    def test_accepted_falsy_values(self):
+        from env_utils import env_flag
+
+        for value in ("false", "FALSE", "0", "no", " No "):
+            with patch.dict(os.environ, {"DRY_RUN": value}):
+                self.assertFalse(env_flag("DRY_RUN", "true"), value)
+
+    def test_typo_raises_instead_of_opening_writes(self):
+        from env_utils import env_flag
+
+        with patch.dict(os.environ, {"DRY_RUN": "tru"}):
+            with self.assertRaises(ValueError) as ctx:
+                env_flag("DRY_RUN", "true")
+        self.assertIn("DRY_RUN", str(ctx.exception))
+
+        with patch.dict(os.environ, {"DRY_RUN": "flase"}):
+            with self.assertRaises(ValueError):
+                env_flag("DRY_RUN", "true")
 
 
 class SafetyInvariantTests(unittest.TestCase):
     def test_dry_run_defaults_to_true_in_main_source(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
         self.assertIn('env_flag("DRY_RUN", "true")', source)
+        self.assertIn("from env_utils import env_flag", source)
 
     def test_live_worker_guards_label_reset_with_dry_run(self):
         source = (ROOT / "live_worker.py").read_text(encoding="utf-8")
@@ -446,6 +529,8 @@ class SafetyInvariantTests(unittest.TestCase):
         self.assertIn("history_expired", source)
         self.assertIn("First live run; running recent inbox recovery", source)
         self.assertIn("max_batches = 1 if dry_run else 5", source)
+        self.assertIn("refusing success", source)
+        self.assertIn("max_batches=50", source)
 
     def test_wrapper_root_is_script_directory(self):
         live = (ROOT / "scripts" / "run_live.sh.example").read_text()
@@ -455,17 +540,18 @@ class SafetyInvariantTests(unittest.TestCase):
         self.assertNotIn('/.."', live)
         self.assertNotIn('/.."', backfill)
 
-    def test_env_flag_default_true_without_importing_main(self):
-        # Keep this offline: do not import main.py (Google/TypeSafe deps).
-        source = (ROOT / "main.py").read_text(encoding="utf-8")
-        tree = ast.parse(source)
-        fn = next(
-            node
-            for node in tree.body
-            if isinstance(node, ast.FunctionDef) and node.name == "env_flag"
-        )
-        self.assertEqual(fn.args.defaults[0].value, "false")
-        self.assertIn('env_flag("DRY_RUN", "true")', source)
+    def test_wrappers_do_not_source_dotenv(self):
+        live = (ROOT / "scripts" / "run_live.sh.example").read_text()
+        backfill = (ROOT / "scripts" / "run_backfill.sh.example").read_text()
+        for text in (live, backfill):
+            self.assertNotRegex(text, r"(?m)^\s*source\s+\.env\b")
+            self.assertNotRegex(text, r"(?m)^\s*\.\s+\.env\b")
+        self.assertIn("live_worker.py", live)
+        self.assertIn("backfill_worker.py", backfill)
+
+    def test_env_example_quotes_mailbox_owner_name(self):
+        text = (ROOT / ".env.example").read_text(encoding="utf-8")
+        self.assertIn('MAILBOX_OWNER_NAME="the mailbox owner"', text)
 
 
 if __name__ == "__main__":

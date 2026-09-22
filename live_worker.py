@@ -13,6 +13,7 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
+from env_utils import env_flag
 from workflow import (
     HISTORY_RECOVERY_QUERY,
     LIVE_QUERY,
@@ -32,10 +33,6 @@ STATE = ROOT / "live_history_state.json"
 LOCK = ROOT / WORKER_LOCK_NAME
 LOG = ROOT / "live.log"
 DETAIL = ROOT / "live-detail.log"
-
-
-def env_flag(name, default="false"):
-    return os.getenv(name, default).lower() in {"1", "true", "yes"}
 
 
 def log(msg):
@@ -262,7 +259,13 @@ def process_batches(gmail_query, label="Live", dry_run=False, max_batches=None):
             log(f"DRY_RUN: stopping after one {label.lower()} batch.")
             return True
 
-    return True
+    # Safety cap only — do not treat remaining work as success (checkpoint
+    # must not advance while the shrinking query still has threads).
+    log(
+        f"{label} stopped after {max_batches} batch(es) without "
+        "emptying the query; refusing success."
+    )
+    return False
 
 
 def run_recovery(gmail, dry_run):
@@ -300,15 +303,13 @@ def run_recovery(gmail, dry_run):
     if reset_failed:
         return False
 
-    # main.py processes up to 100 threads per invocation.
-    needed = max(1, (len(candidate_ids) + 99) // 100)
-    max_batches = min(50, needed)
-
+    # Success requires the shrinking query to empty; batch count is only a
+    # safety cap (independent of MAX_RESULTS).
     return process_batches(
         RECOVERY_PROCESS_QUERY,
         label="Recovery",
         dry_run=False,
-        max_batches=max_batches,
+        max_batches=50,
     )
 
 

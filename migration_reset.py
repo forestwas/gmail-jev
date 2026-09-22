@@ -14,6 +14,7 @@ from googleapiclient.errors import HttpError
 
 from workflow import MIGRATION_RESET_LABELS, SCOPES
 from worker_lock import exclusive_worker_lock
+from env_utils import env_flag
 
 ROOT = Path(__file__).resolve().parent
 TOKEN = ROOT / "token.json"
@@ -135,11 +136,7 @@ def apply_reset(gmail, name_to_id, thread_to_labels):
 def main():
     load_dotenv()
 
-    apply = os.getenv("APPLY_MIGRATION_RESET", "false").lower() in {
-        "1",
-        "true",
-        "yes",
-    }
+    apply = env_flag("APPLY_MIGRATION_RESET", "false")
 
     gmail = gmail_service()
 

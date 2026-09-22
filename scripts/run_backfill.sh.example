@@ -1,11 +1,8 @@
 #!/usr/bin/env bash
 # Example wrapper for cron/launchd.
 # Usage: cp scripts/run_backfill.sh.example run_backfill.sh && chmod +x run_backfill.sh
+# Python loads .env via load_dotenv(); do not shell-source the dotenv file.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
-set -a
-# shellcheck disable=SC1091
-source .env
-set +a
 exec .venv/bin/python backfill_worker.py

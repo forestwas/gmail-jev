@@ -15,6 +15,7 @@ from googleapiclient.errors import HttpError
 
 from typesafe_sdk import Choice, Noul, Score, TypeSafeClient
 
+from env_utils import env_flag
 from routing import (
     decide_label_names,
     find_known_client_matches,
@@ -22,10 +23,6 @@ from routing import (
 )
 from gmail_utils import decode_body, get_header, has_calendar_part
 from workflow import DEFAULT_GMAIL_QUERY, SCOPES, WORKFLOW_LABELS
-
-
-def env_flag(name, default="false"):
-    return os.getenv(name, default).lower() in {"1", "true", "yes"}
 
 
 def get_gmail_service():
