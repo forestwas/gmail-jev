@@ -1,0 +1,12 @@
+#!/bin/zsh
+# Example wrapper for cron/launchd.
+# Usage: cp scripts/run_live.sh.example run_live.sh && chmod +x run_live.sh
+# Keep the real script (with secrets via .env) out of git.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+set -a
+# shellcheck disable=SC1091
+source .env
+set +a
+exec .venv/bin/python live_worker.py

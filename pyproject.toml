@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gmail-jev"
+version = "0.1.0"
+description = "Gmail inbox triage with TypeSafe Jev — workflow labels, archive decisions, and optional workers."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Altay Suna" }]
+keywords = ["gmail", "typesafe", "jev", "email", "triage", "automation"]
+dependencies = [
+  "typesafe-sdk==0.7.0",
+  "python-dotenv==1.2.3",
+  "google-api-python-client==2.200.0",
+  "google-auth==2.58.0",
+  "google-auth-oauthlib==1.4.1",
+  "google-auth-httplib2==0.4.2",
+]
+
+[project.urls]
+Homepage = "https://github.com/forestwas/gmail-jev"
+Repository = "https://github.com/forestwas/gmail-jev"
+Issues = "https://github.com/forestwas/gmail-jev/issues"
+
+[tool.setuptools]
+py-modules = [
+  "main",
+  "routing",
+  "workflow",
+  "gmail_utils",
+  "live_worker",
+  "backfill_worker",
+  "migration_reset",
+  "migration_runner",
+]

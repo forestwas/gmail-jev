@@ -1,0 +1,11 @@
+#!/bin/zsh
+# Example wrapper for cron/launchd.
+# Usage: cp scripts/run_backfill.sh.example run_backfill.sh && chmod +x run_backfill.sh
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+set -a
+# shellcheck disable=SC1091
+source .env
+set +a
+exec .venv/bin/python backfill_worker.py
