@@ -2,6 +2,7 @@ import base64
 import ast
 import unittest
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from gmail_utils import decode_body, get_header, has_calendar_part
 from routing import (
@@ -14,6 +15,7 @@ from workflow import (
     DEFAULT_GMAIL_QUERY,
     HISTORY_RECOVERY_QUERY,
     LIVE_QUERY,
+    RECOVERY_PROCESS_QUERY,
     WORKER_LOCK_NAME,
     WORKFLOW_LABELS,
 )
@@ -41,6 +43,11 @@ class WorkflowQueryTests(unittest.TestCase):
         self.assertEqual(HISTORY_RECOVERY_QUERY, "in:inbox newer_than:7d")
         for name in WORKFLOW_LABELS:
             self.assertNotIn(f'-label:"{name}"', HISTORY_RECOVERY_QUERY)
+
+    def test_recovery_process_query_excludes_workflow_labels(self):
+        self.assertIn("newer_than:7d", RECOVERY_PROCESS_QUERY)
+        for name in WORKFLOW_LABELS:
+            self.assertIn(f'-label:"{name}"', RECOVERY_PROCESS_QUERY)
 
     def test_workers_share_one_lock_name(self):
         self.assertEqual(WORKER_LOCK_NAME, ".worker.lock")
@@ -86,6 +93,49 @@ class MimeHelperTests(unittest.TestCase):
         self.assertIn("Hello", text)
         self.assertIn("HTML", text)
         self.assertNotIn("<b>", text)
+
+    def test_decode_body_skips_filename_text_attachment(self):
+        payload = {
+            "mimeType": "multipart/mixed",
+            "parts": [
+                {
+                    "mimeType": "text/plain",
+                    "body": {"data": b64("Visible body")},
+                },
+                {
+                    "mimeType": "text/plain",
+                    "filename": "secret-notes.txt",
+                    "body": {"data": b64("secret attachment text")},
+                },
+            ],
+        }
+        text = decode_body(payload)
+        self.assertEqual(text, "Visible body")
+        self.assertNotIn("secret", text)
+
+    def test_decode_body_skips_content_disposition_attachment(self):
+        payload = {
+            "mimeType": "multipart/mixed",
+            "parts": [
+                {
+                    "mimeType": "text/plain",
+                    "body": {"data": b64("Inline body")},
+                },
+                {
+                    "mimeType": "text/html",
+                    "headers": [
+                        {
+                            "name": "Content-Disposition",
+                            "value": 'attachment; filename="page.html"',
+                        }
+                    ],
+                    "body": {"data": b64("<p>Attached HTML secrets</p>")},
+                },
+            ],
+        }
+        text = decode_body(payload)
+        self.assertEqual(text, "Inline body")
+        self.assertNotIn("secrets", text)
 
     def test_get_header_is_case_insensitive(self):
         message = {
@@ -217,6 +267,20 @@ class RoutingTests(unittest.TestCase):
             )
         )
 
+    def test_newsletter_with_high_action_gets_action_label(self):
+        labels = decide_label_names(
+            known_client_matches=[],
+            relationship="other",
+            relationship_confidence=0.80,
+            message_type="newsletter",
+            message_type_confidence=0.90,
+            reply_needed=0.10,
+            action_required=0.95,
+            waiting_on_them=0.10,
+        )
+        self.assertIn("08 — Read Later", labels)
+        self.assertIn("02 — Action Required", labels)
+
     def test_does_not_archive_when_reply_needed(self):
         self.assertFalse(
             should_archive_thread(
@@ -227,6 +291,115 @@ class RoutingTests(unittest.TestCase):
                 action_required=0.10,
             )
         )
+
+
+class LiveWorkerBehaviorTests(unittest.TestCase):
+    def test_process_batches_dry_run_invokes_main_once(self):
+        import live_worker
+
+        calls = []
+
+        def fake_run_main(query):
+            calls.append(query)
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = "classified 50 threads"
+            return result
+
+        with patch.object(live_worker, "run_main", side_effect=fake_run_main):
+            with patch.object(live_worker, "log"):
+                ok = live_worker.process_batches(
+                    "in:inbox",
+                    label="Live",
+                    dry_run=True,
+                )
+
+        self.assertTrue(ok)
+        self.assertEqual(len(calls), 1)
+
+    def test_run_recovery_strips_then_uses_shrinking_query(self):
+        import live_worker
+
+        gmail = MagicMock()
+        classify_calls = []
+
+        with patch.object(
+            live_worker,
+            "list_thread_ids_for_query",
+            return_value=["t1", "t2", "t3"],
+        ):
+            with patch.object(
+                live_worker,
+                "remove_old_workflow_labels",
+                return_value=(3, 0),
+            ) as strip:
+                with patch.object(
+                    live_worker,
+                    "process_batches",
+                    return_value=True,
+                ) as batches:
+                    with patch.object(live_worker, "log"):
+                        ok = live_worker.run_recovery(gmail, dry_run=False)
+
+        self.assertTrue(ok)
+        strip.assert_called_once_with(gmail, ["t1", "t2", "t3"], dry_run=False)
+        batches.assert_called_once()
+        args, kwargs = batches.call_args
+        self.assertEqual(args[0], RECOVERY_PROCESS_QUERY)
+        self.assertEqual(kwargs.get("label") or args[1], "Recovery")
+        self.assertEqual(kwargs.get("max_batches"), 1)
+
+    def test_run_recovery_dry_run_skips_strip_and_loops_once(self):
+        import live_worker
+
+        gmail = MagicMock()
+
+        with patch.object(
+            live_worker,
+            "process_batches",
+            return_value=True,
+        ) as batches:
+            with patch.object(
+                live_worker,
+                "remove_old_workflow_labels",
+            ) as strip:
+                with patch.object(live_worker, "log"):
+                    ok = live_worker.run_recovery(gmail, dry_run=True)
+
+        self.assertTrue(ok)
+        strip.assert_not_called()
+        batches.assert_called_once_with(
+            HISTORY_RECOVERY_QUERY,
+            label="Recovery",
+            dry_run=True,
+        )
+
+    def test_run_recovery_scales_batches_for_large_candidate_sets(self):
+        import live_worker
+
+        gmail = MagicMock()
+        # 250 candidates → ceil(250/100) = 3 batches
+        candidates = [f"t{i}" for i in range(250)]
+
+        with patch.object(
+            live_worker,
+            "list_thread_ids_for_query",
+            return_value=candidates,
+        ):
+            with patch.object(
+                live_worker,
+                "remove_old_workflow_labels",
+                return_value=(250, 0),
+            ):
+                with patch.object(
+                    live_worker,
+                    "process_batches",
+                    return_value=True,
+                ) as batches:
+                    with patch.object(live_worker, "log"):
+                        live_worker.run_recovery(gmail, dry_run=False)
+
+        self.assertEqual(batches.call_args.kwargs["max_batches"], 3)
 
 
 class SafetyInvariantTests(unittest.TestCase):
@@ -255,6 +428,12 @@ class SafetyInvariantTests(unittest.TestCase):
         self.assertIn("Dry-run sample complete", source)
         self.assertIn("if not apply:", source)
 
+    def test_migration_scripts_take_worker_lock(self):
+        runner = (ROOT / "migration_runner.py").read_text(encoding="utf-8")
+        reset = (ROOT / "migration_reset.py").read_text(encoding="utf-8")
+        self.assertIn("exclusive_worker_lock", runner)
+        self.assertIn("exclusive_worker_lock", reset)
+
     def test_live_worker_dry_run_does_not_advance_history(self):
         source = (ROOT / "live_worker.py").read_text(encoding="utf-8")
         self.assertIn(
@@ -262,7 +441,11 @@ class SafetyInvariantTests(unittest.TestCase):
             source,
         )
         self.assertIn("HISTORY_RECOVERY_QUERY", source)
+        self.assertIn("RECOVERY_PROCESS_QUERY", source)
+        self.assertIn("run_recovery", source)
         self.assertIn("history_expired", source)
+        self.assertIn("First live run; running recent inbox recovery", source)
+        self.assertIn("max_batches = 1 if dry_run else 5", source)
 
     def test_wrapper_root_is_script_directory(self):
         live = (ROOT / "scripts" / "run_live.sh.example").read_text()

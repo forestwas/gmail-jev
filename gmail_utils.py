@@ -43,12 +43,30 @@ def _html_to_text(html: str) -> str:
     return text.strip()
 
 
+def _is_attachment_part(part):
+    """Skip named attachments and Content-Disposition: attachment parts."""
+    if (part.get("filename") or "").strip():
+        return True
+
+    for header in part.get("headers") or []:
+        if (header.get("name") or "").lower() != "content-disposition":
+            continue
+        value = (header.get("value") or "").lower()
+        if "attachment" in value:
+            return True
+
+    return False
+
+
 def decode_body(payload):
-    """Prefer text/plain; fall back to stripped text/html."""
+    """Prefer text/plain; fall back to stripped text/html. Skip attachments."""
     plain_parts = []
     html_parts = []
 
     def walk(part):
+        if _is_attachment_part(part):
+            return
+
         mime_type = (part.get("mimeType") or "").lower()
         body = part.get("body", {})
         data = body.get("data")

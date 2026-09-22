@@ -16,6 +16,7 @@ from googleapiclient.errors import HttpError
 from workflow import (
     HISTORY_RECOVERY_QUERY,
     LIVE_QUERY,
+    RECOVERY_PROCESS_QUERY,
     SCOPES,
     WORKER_LOCK_NAME,
     WORKFLOW_LABELS,
@@ -150,6 +151,37 @@ def history_thread_ids(gmail, start_history_id):
     return result
 
 
+def list_thread_ids_for_query(gmail, query):
+    """Paginate every matching thread id once (discovery for recovery)."""
+    ids = []
+    seen = set()
+    page_token = None
+
+    while True:
+        kwargs = {
+            "userId": "me",
+            "q": query,
+            "maxResults": 500,
+        }
+        if page_token:
+            kwargs["pageToken"] = page_token
+
+        response = gmail.users().threads().list(**kwargs).execute()
+
+        for thread in response.get("threads", []):
+            thread_id = thread["id"]
+            if thread_id in seen:
+                continue
+            seen.add(thread_id)
+            ids.append(thread_id)
+
+        page_token = response.get("nextPageToken")
+        if not page_token:
+            break
+
+    return ids
+
+
 def thread_is_inbox(thread):
     for message in thread.get("messages", []):
         if "INBOX" in message.get("labelIds", []):
@@ -205,10 +237,13 @@ def remove_old_workflow_labels(gmail, thread_ids, dry_run):
     return changed, failed
 
 
-def process_batches(gmail_query, label="Live"):
-    # Under normal conditions this is a few threads.
-    # If backlog builds up, process at most 5 x 100 threads.
-    for batch in range(1, 6):
+def process_batches(gmail_query, label="Live", dry_run=False, max_batches=None):
+    # Dry-run does not write labels, so the Gmail query never shrinks —
+    # run a single sample batch only (same rule as migration_runner).
+    if max_batches is None:
+        max_batches = 1 if dry_run else 5
+
+    for batch in range(1, max_batches + 1):
         result = run_main(gmail_query)
 
         if result.returncode != 0:
@@ -223,7 +258,58 @@ def process_batches(gmail_query, label="Live"):
 
         log(f"{label} batch {batch} completed.")
 
+        if dry_run:
+            log(f"DRY_RUN: stopping after one {label.lower()} batch.")
+            return True
+
     return True
+
+
+def run_recovery(gmail, dry_run):
+    """Re-classify recent inbox once: discover → strip → shrinking batches."""
+    if dry_run:
+        log(
+            "DRY_RUN recovery: single sample batch "
+            "(no label strip / no multi-batch loop)."
+        )
+        return process_batches(
+            HISTORY_RECOVERY_QUERY,
+            label="Recovery",
+            dry_run=True,
+        )
+
+    candidate_ids = list_thread_ids_for_query(
+        gmail,
+        HISTORY_RECOVERY_QUERY,
+    )
+    log(f"Recovery candidates: {len(candidate_ids)}")
+
+    if not candidate_ids:
+        return True
+
+    reset_count, reset_failed = remove_old_workflow_labels(
+        gmail,
+        candidate_ids,
+        dry_run=False,
+    )
+    log(
+        f"Recovery: stripped workflow labels from {reset_count} "
+        f"inbox thread(s); failures={reset_failed}."
+    )
+
+    if reset_failed:
+        return False
+
+    # main.py processes up to 100 threads per invocation.
+    needed = max(1, (len(candidate_ids) + 99) // 100)
+    max_batches = min(50, needed)
+
+    return process_batches(
+        RECOVERY_PROCESS_QUERY,
+        label="Recovery",
+        dry_run=False,
+        max_batches=max_batches,
+    )
 
 
 def run():
@@ -266,22 +352,28 @@ def run():
                 history_expired = True
                 log(
                     "History ID expired; "
-                    "running inbox recovery without workflow-label exclusions."
+                    "running recent inbox recovery."
                 )
             else:
                 raise
 
     else:
+        # No prior checkpoint: recent labeled threads with new mail would
+        # otherwise be invisible to LIVE_QUERY. Bootstrap via recovery.
+        history_expired = True
         log(
-            "First live run; creating history starting point."
+            "First live run; running recent inbox recovery before "
+            "setting history checkpoint."
         )
 
     if history_expired:
-        # Full correct sync of the whole mailbox is out of scope; recover a
-        # recent inbox window including already-labeled threads.
-        ok = process_batches(HISTORY_RECOVERY_QUERY, label="Recovery")
+        ok = run_recovery(gmail, dry_run)
     else:
-        ok = process_batches(LIVE_QUERY, label="Live")
+        ok = process_batches(
+            LIVE_QUERY,
+            label="Live",
+            dry_run=dry_run,
+        )
 
     # Dry-run must not consume production history state.
     if dry_run:

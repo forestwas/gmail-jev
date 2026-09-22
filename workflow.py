@@ -30,9 +30,10 @@ DEFAULT_GMAIL_QUERY = inbox_excluding_workflow_labels()
 # Non-overlapping windows: live covers the last day; backfill covers older mail.
 LIVE_QUERY = inbox_excluding_workflow_labels("newer_than:1d")
 BACKFILL_QUERY = inbox_excluding_workflow_labels("older_than:1d")
-# Used when Gmail historyId is expired (404). Includes labeled inbox mail so
-# threads that received new messages during the gap can be classified again.
+# Discover candidates when historyId is expired (includes already-labeled mail).
 HISTORY_RECOVERY_QUERY = "in:inbox newer_than:7d"
+# After stripping workflow labels from candidates, classify with a shrinking query.
+RECOVERY_PROCESS_QUERY = inbox_excluding_workflow_labels("newer_than:7d")
 
 # Legacy / intermediate label names used only by migration_reset.py
 LEGACY_WORKFLOW_LABELS = [

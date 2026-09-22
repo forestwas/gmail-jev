@@ -115,7 +115,6 @@ def decide_label_names(
 
     if (
         action_required >= action_threshold
-        and message_type != "newsletter"
     ):
         meaningful.append("02 — Action Required")
 

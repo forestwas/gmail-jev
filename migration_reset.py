@@ -6,12 +6,14 @@ from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from workflow import MIGRATION_RESET_LABELS, SCOPES
+from worker_lock import exclusive_worker_lock
 
 ROOT = Path(__file__).resolve().parent
 TOKEN = ROOT / "token.json"
@@ -25,8 +27,14 @@ def gmail_service():
     )
 
     if creds.expired and creds.refresh_token:
-        creds.refresh(Request())
-        TOKEN.write_text(creds.to_json())
+        try:
+            creds.refresh(Request())
+            TOKEN.write_text(creds.to_json())
+        except RefreshError as exc:
+            raise RuntimeError(
+                "Gmail token refresh failed. Re-run gmail_test.py or main.py "
+                "to authorize again (Testing OAuth apps expire after ~7 days)."
+            ) from exc
 
     return build("gmail", "v1", credentials=creds)
 
@@ -213,4 +221,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    with exclusive_worker_lock(ROOT):
+        main()

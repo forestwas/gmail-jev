@@ -510,13 +510,15 @@ APPLY_MIGRATION=true python migration_runner.py    # live writes in batches
 
 `migration_runner.py` stays dry-run unless `APPLY_MIGRATION=true`. Dry-run classifies **one** batch into `validation.jsonl` and stops (without labels, the same threads would otherwise repeat forever). If Jev errors out, it fails instead of saying “done.” Keep snapshot/decision files private.
 
+**Stop scheduled live/backfill workers before migration.** Both migration scripts take the same `.worker.lock` as the workers; if a worker is running they exit instead of racing label writes.
+
 ---
 
 ## Privacy notes
 
 Mail can include passwords, contracts, money stuff, and private talks. You own the risk: protect keys and decide if this tool fits your mailbox.
 
-Classification sends **subject, From/To/Date headers, and message body text** (truncated) to the TypeSafe API, plus your mailbox address for “who is the owner” context. This code does **not** upload attachments. Google sees the usual Gmail API traffic for listing/modifying threads.
+Classification sends **subject, From/To/Date headers, and message body text** (truncated) to the TypeSafe API, plus your mailbox address for “who is the owner” context. Attachment MIME parts (named files or `Content-Disposition: attachment`) are skipped and not sent to TypeSafe; this code also does not fetch `attachmentId` payloads. Inline body text/html still goes to the model. Google sees the usual Gmail API traffic for listing/modifying threads.
 
 Never commit:
 
@@ -524,6 +526,12 @@ Never commit:
 - logs, `*.jsonl`, snapshots, locks
 
 `.gitignore` already lists these. Dry-run before large live batches.
+
+### Known limitations
+
+- **History recovery** rechecks Inbox mail from roughly the last **7 days** only (`HISTORY_RECOVERY_QUERY`). If the worker was offline longer than Gmail’s history retention, older gaps may be missed — strip labels / re-run `main.py` on older windows manually. Full-mailbox sync is intentionally not done.
+- **First live_worker run** (no `live_history_state.json`) bootstraps with that same recent recovery path before writing a history checkpoint.
+- **`live_worker` dry-run** classifies a single batch per invocation (labels are not written, so the query cannot shrink).
 
 ---
 

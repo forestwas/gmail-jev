@@ -8,6 +8,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from worker_lock import exclusive_worker_lock
+
 
 ROOT = Path(__file__).resolve().parent
 VENV_PYTHON = ROOT / ".venv" / "bin" / "python"
@@ -27,7 +29,7 @@ def count_rows(path):
 
     return sum(
         1
-        for line in path.read_text().splitlines()
+        for line in path.read_text(encoding="utf-8").splitlines()
         if line.strip()
     )
 
@@ -42,7 +44,7 @@ def summarize_new_rows(path, start_index):
 
     rows = [
         json.loads(line)
-        for line in path.read_text().splitlines()
+        for line in path.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ][start_index:]
 
@@ -215,4 +217,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    with exclusive_worker_lock(ROOT):
+        main()
