@@ -299,6 +299,7 @@ class LiveWorkerBehaviorTests(unittest.TestCase):
         import live_worker
 
         calls = []
+        gmail = MagicMock()
 
         def fake_run_main(query):
             calls.append(query)
@@ -310,6 +311,7 @@ class LiveWorkerBehaviorTests(unittest.TestCase):
         with patch.object(live_worker, "run_main", side_effect=fake_run_main):
             with patch.object(live_worker, "log"):
                 ok = live_worker.process_batches(
+                    gmail,
                     "in:inbox",
                     label="Live",
                     dry_run=True,
@@ -321,6 +323,8 @@ class LiveWorkerBehaviorTests(unittest.TestCase):
     def test_process_batches_refuses_success_when_query_never_empties(self):
         import live_worker
 
+        gmail = MagicMock()
+
         def fake_run_main(query):
             result = MagicMock()
             result.returncode = 0
@@ -328,19 +332,26 @@ class LiveWorkerBehaviorTests(unittest.TestCase):
             return result
 
         with patch.object(live_worker, "run_main", side_effect=fake_run_main):
-            with patch.object(live_worker, "log"):
-                ok = live_worker.process_batches(
-                    "in:inbox",
-                    label="Recovery",
-                    dry_run=False,
-                    max_batches=3,
-                )
+            with patch.object(
+                live_worker,
+                "query_is_empty",
+                return_value=False,
+            ):
+                with patch.object(live_worker, "log"):
+                    ok = live_worker.process_batches(
+                        gmail,
+                        "in:inbox",
+                        label="Recovery",
+                        dry_run=False,
+                        max_batches=3,
+                    )
 
         self.assertFalse(ok)
 
-    def test_process_batches_succeeds_when_query_empties(self):
+    def test_process_batches_succeeds_when_main_reports_empty(self):
         import live_worker
 
+        gmail = MagicMock()
         outputs = [
             "classified some",
             "Inbox is empty.",
@@ -355,6 +366,7 @@ class LiveWorkerBehaviorTests(unittest.TestCase):
         with patch.object(live_worker, "run_main", side_effect=fake_run_main):
             with patch.object(live_worker, "log"):
                 ok = live_worker.process_batches(
+                    gmail,
                     "in:inbox",
                     label="Recovery",
                     dry_run=False,
@@ -363,6 +375,46 @@ class LiveWorkerBehaviorTests(unittest.TestCase):
 
         self.assertTrue(ok)
         self.assertEqual(outputs, [])
+
+    def test_process_batches_succeeds_when_final_batch_empties_query(self):
+        """Exact-fill regression: last batch processes work but main never
+        prints Inbox is empty; post-batch Gmail probe must still succeed."""
+        import live_worker
+
+        gmail = MagicMock()
+        calls = 0
+
+        def fake_run_main(query):
+            nonlocal calls
+            calls += 1
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = f"classified batch {calls}"
+            return result
+
+        # After batches 1-4 query still has work; after batch 5 it is empty.
+        empty_after = {5}
+
+        def fake_empty(gmail_arg, query):
+            return calls in empty_after
+
+        with patch.object(live_worker, "run_main", side_effect=fake_run_main):
+            with patch.object(
+                live_worker,
+                "query_is_empty",
+                side_effect=fake_empty,
+            ):
+                with patch.object(live_worker, "log"):
+                    ok = live_worker.process_batches(
+                        gmail,
+                        "in:inbox",
+                        label="Live",
+                        dry_run=False,
+                        max_batches=5,
+                    )
+
+        self.assertTrue(ok)
+        self.assertEqual(calls, 5)
 
     def test_run_recovery_strips_then_uses_shrinking_query(self):
         import live_worker
@@ -374,27 +426,35 @@ class LiveWorkerBehaviorTests(unittest.TestCase):
             "list_thread_ids_for_query",
             return_value=["t1", "t2", "t3"],
         ):
-            with patch.object(
-                live_worker,
-                "remove_old_workflow_labels",
-                return_value=(3, 0),
-            ) as strip:
+            with patch.dict(os.environ, {"MAX_RESULTS": "100"}):
                 with patch.object(
                     live_worker,
-                    "process_batches",
-                    return_value=True,
-                ) as batches:
-                    with patch.object(live_worker, "log"):
-                        ok = live_worker.run_recovery(gmail, dry_run=False)
+                    "remove_old_workflow_labels",
+                    return_value=(3, 0),
+                ) as strip:
+                    with patch.object(
+                        live_worker,
+                        "process_batches",
+                        return_value=True,
+                    ) as batches:
+                        with patch.object(live_worker, "log"):
+                            ok = live_worker.run_recovery(
+                                gmail,
+                                dry_run=False,
+                            )
 
         self.assertTrue(ok)
-        strip.assert_called_once_with(gmail, ["t1", "t2", "t3"], dry_run=False)
+        strip.assert_called_once_with(
+            gmail,
+            ["t1", "t2", "t3"],
+            dry_run=False,
+        )
         batches.assert_called_once()
         args, kwargs = batches.call_args
-        self.assertEqual(args[0], RECOVERY_PROCESS_QUERY)
-        self.assertEqual(kwargs.get("label") or args[1], "Recovery")
-        # Safety cap only — not derived from candidate_count / 100.
-        self.assertEqual(kwargs.get("max_batches"), 50)
+        self.assertEqual(args[0], gmail)
+        self.assertEqual(args[1], RECOVERY_PROCESS_QUERY)
+        self.assertEqual(kwargs.get("label") or args[2], "Recovery")
+        self.assertEqual(kwargs.get("max_batches"), 1)
 
     def test_run_recovery_dry_run_skips_strip_and_loops_once(self):
         import live_worker
@@ -416,12 +476,13 @@ class LiveWorkerBehaviorTests(unittest.TestCase):
         self.assertTrue(ok)
         strip.assert_not_called()
         batches.assert_called_once_with(
+            gmail,
             HISTORY_RECOVERY_QUERY,
             label="Recovery",
             dry_run=True,
         )
 
-    def test_run_recovery_batch_cap_independent_of_candidate_count(self):
+    def test_run_recovery_required_batches_uses_max_results(self):
         import live_worker
 
         gmail = MagicMock()
@@ -432,20 +493,52 @@ class LiveWorkerBehaviorTests(unittest.TestCase):
             "list_thread_ids_for_query",
             return_value=candidates,
         ):
-            with patch.object(
-                live_worker,
-                "remove_old_workflow_labels",
-                return_value=(250, 0),
-            ):
+            with patch.dict(os.environ, {"MAX_RESULTS": "100"}):
                 with patch.object(
                     live_worker,
-                    "process_batches",
-                    return_value=True,
-                ) as batches:
-                    with patch.object(live_worker, "log"):
-                        live_worker.run_recovery(gmail, dry_run=False)
+                    "remove_old_workflow_labels",
+                    return_value=(250, 0),
+                ):
+                    with patch.object(
+                        live_worker,
+                        "process_batches",
+                        return_value=True,
+                    ) as batches:
+                        with patch.object(live_worker, "log"):
+                            live_worker.run_recovery(gmail, dry_run=False)
 
-        self.assertEqual(batches.call_args.kwargs["max_batches"], 50)
+        self.assertEqual(batches.call_args.kwargs["max_batches"], 3)
+
+    def test_run_recovery_refuses_before_strip_when_over_capacity(self):
+        import live_worker
+
+        gmail = MagicMock()
+        # 700 candidates / MAX_RESULTS=10 → 70 batches > cap 50
+        candidates = [f"t{i}" for i in range(700)]
+
+        with patch.object(
+            live_worker,
+            "list_thread_ids_for_query",
+            return_value=candidates,
+        ):
+            with patch.dict(os.environ, {"MAX_RESULTS": "10"}):
+                with patch.object(
+                    live_worker,
+                    "remove_old_workflow_labels",
+                ) as strip:
+                    with patch.object(
+                        live_worker,
+                        "process_batches",
+                    ) as batches:
+                        with patch.object(live_worker, "log"):
+                            ok = live_worker.run_recovery(
+                                gmail,
+                                dry_run=False,
+                            )
+
+        self.assertFalse(ok)
+        strip.assert_not_called()
+        batches.assert_not_called()
 
 
 class EnvFlagTests(unittest.TestCase):
@@ -530,7 +623,9 @@ class SafetyInvariantTests(unittest.TestCase):
         self.assertIn("First live run; running recent inbox recovery", source)
         self.assertIn("max_batches = 1 if dry_run else 5", source)
         self.assertIn("refusing success", source)
-        self.assertIn("max_batches=50", source)
+        self.assertIn("query_is_empty", source)
+        self.assertIn("RECOVERY_MAX_BATCHES", source)
+        self.assertIn("refusing before label strip", source)
 
     def test_wrapper_root_is_script_directory(self):
         live = (ROOT / "scripts" / "run_live.sh.example").read_text()

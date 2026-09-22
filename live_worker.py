@@ -33,6 +33,7 @@ STATE = ROOT / "live_history_state.json"
 LOCK = ROOT / WORKER_LOCK_NAME
 LOG = ROOT / "live.log"
 DETAIL = ROOT / "live-detail.log"
+RECOVERY_MAX_BATCHES = 50
 
 
 def log(msg):
@@ -234,7 +235,23 @@ def remove_old_workflow_labels(gmail, thread_ids, dry_run):
     return changed, failed
 
 
-def process_batches(gmail_query, label="Live", dry_run=False, max_batches=None):
+def query_is_empty(gmail, query):
+    """Cheap Gmail check: does this search still have any threads?"""
+    response = gmail.users().threads().list(
+        userId="me",
+        q=query,
+        maxResults=1,
+    ).execute()
+    return not response.get("threads")
+
+
+def process_batches(
+    gmail,
+    gmail_query,
+    label="Live",
+    dry_run=False,
+    max_batches=None,
+):
     # Dry-run does not write labels, so the Gmail query never shrinks —
     # run a single sample batch only (same rule as migration_runner).
     if max_batches is None:
@@ -259,6 +276,12 @@ def process_batches(gmail_query, label="Live", dry_run=False, max_batches=None):
             log(f"DRY_RUN: stopping after one {label.lower()} batch.")
             return True
 
+        # A full productive batch can empty the query without main.py
+        # printing "Inbox is empty." Probe Gmail directly.
+        if query_is_empty(gmail, gmail_query):
+            log(f"{label}: query empty after batch {batch}.")
+            return True
+
     # Safety cap only — do not treat remaining work as success (checkpoint
     # must not advance while the shrinking query still has threads).
     log(
@@ -266,6 +289,10 @@ def process_batches(gmail_query, label="Live", dry_run=False, max_batches=None):
         "emptying the query; refusing success."
     )
     return False
+
+
+def max_results_per_run():
+    return max(1, int(os.getenv("MAX_RESULTS", "100")))
 
 
 def run_recovery(gmail, dry_run):
@@ -276,6 +303,7 @@ def run_recovery(gmail, dry_run):
             "(no label strip / no multi-batch loop)."
         )
         return process_batches(
+            gmail,
             HISTORY_RECOVERY_QUERY,
             label="Recovery",
             dry_run=True,
@@ -290,6 +318,20 @@ def run_recovery(gmail, dry_run):
     if not candidate_ids:
         return True
 
+    max_results = max_results_per_run()
+    required_batches = (
+        len(candidate_ids) + max_results - 1
+    ) // max_results
+
+    if required_batches > RECOVERY_MAX_BATCHES:
+        log(
+            f"Recovery needs {required_batches} batches for "
+            f"{len(candidate_ids)} candidates at MAX_RESULTS={max_results} "
+            f"(cap={RECOVERY_MAX_BATCHES}); refusing before label strip. "
+            "Raise MAX_RESULTS or narrow the recovery window."
+        )
+        return False
+
     reset_count, reset_failed = remove_old_workflow_labels(
         gmail,
         candidate_ids,
@@ -303,13 +345,12 @@ def run_recovery(gmail, dry_run):
     if reset_failed:
         return False
 
-    # Success requires the shrinking query to empty; batch count is only a
-    # safety cap (independent of MAX_RESULTS).
     return process_batches(
+        gmail,
         RECOVERY_PROCESS_QUERY,
         label="Recovery",
         dry_run=False,
-        max_batches=50,
+        max_batches=required_batches,
     )
 
 
@@ -371,6 +412,7 @@ def run():
         ok = run_recovery(gmail, dry_run)
     else:
         ok = process_batches(
+            gmail,
             LIVE_QUERY,
             label="Live",
             dry_run=dry_run,
