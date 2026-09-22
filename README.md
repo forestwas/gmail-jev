@@ -67,6 +67,19 @@ You need:
 
 The AI tool will tell you what to click and what to type. **You** still create the TypeSafe key and the Google login file in the browser. **You** decide when Gmail may change.
 
+### Try this first (often enough)
+
+With most popular AI tools, you can open a new chat and paste something like:
+
+```text
+I want to use the project at https://github.com/forestwas/gmail-jev
+I do not have enough technical knowledge. Guide me step by step.
+```
+
+For many people, that alone is enough: the tool will ask questions and tell you what to do in a simple way.
+
+If that does **not** work well, use the detailed steps below one by one.
+
 Below, each step says **where** you are, **what to paste** into the AI tool, and **what you do**.
 
 ### Step 1 — Start a chat with your AI tool
