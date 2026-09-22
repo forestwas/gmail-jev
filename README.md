@@ -94,7 +94,58 @@ DRY_RUN=false python main.py
 
 Both call `main.py` with an appropriate `GMAIL_QUERY` and use file locks so overlapping runs skip safely.
 
-Example launchd / cron: run `live_worker.py` every few minutes and `backfill_worker.py` less often. Keep schedules, logs, and credentials on your machine — do not commit them.
+Suggested cadence: `live_worker.py` every few minutes; `backfill_worker.py` less often (for example hourly). Keep schedules, logs, and credentials on your machine — do not commit them.
+
+#### cron example
+
+```cron
+*/5 * * * *  cd /path/to/gmail-jev && .venv/bin/python live_worker.py
+0 * * * *    cd /path/to/gmail-jev && .venv/bin/python backfill_worker.py
+```
+
+Load environment variables for the workers (for example via `set -a; source .env; set +a` in a small wrapper script, or your process manager). Cron does not load `.env` by itself.
+
+#### launchd example (macOS)
+
+Save a plist such as `~/Library/LaunchAgents/com.example.gmail-jev.live.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.example.gmail-jev.live</string>
+  <key>WorkingDirectory</key>
+  <string>/path/to/gmail-jev</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/path/to/gmail-jev/.venv/bin/python</string>
+    <string>/path/to/gmail-jev/live_worker.py</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>300</integer>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>TYPESAFE_API_KEY</key>
+    <string>REPLACE_ME</string>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>/path/to/gmail-jev/live-launchd-out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/path/to/gmail-jev/live-launchd-error.log</string>
+</dict>
+</plist>
+```
+
+Then:
+
+```bash
+launchctl load ~/Library/LaunchAgents/com.example.gmail-jev.live.plist
+```
+
+Prefer loading secrets from a local `.env` via a wrapper script instead of putting API keys in the plist when you can.
 
 ### One-time migration helpers
 
