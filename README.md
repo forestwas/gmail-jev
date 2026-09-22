@@ -20,6 +20,7 @@ Same labels show up in the left sidebar and as colored chips on each row. One co
 | Prefer ChatGPT / Claude / Cursor to walk you through it | [Path B](#path-b-use-an-ai-tool-simple-english) |
 | Want to change rules later | [Customize](#customize) |
 | Old labels to clean up | [Migration](#migration) |
+| What’s deferred after v0.1 | [Planned / deferred](#planned--deferred-improvements) |
 
 You only need one path.
 
@@ -587,6 +588,63 @@ Domain/keyword hit forces the Clients path for relationship. Other labels can st
 
 **Any production mailbox data here?**  
 No. Don’t copy real `.env` / tokens / decision logs into a public fork.
+
+---
+
+## Planned / deferred improvements
+
+These are known improvements we are **not** shipping in the first v0.1 cut. Listing them here so the backlog is visible — none of this blocks using the tool today.
+
+- **Narrower Gmail OAuth scope.**  
+  Today the app asks for `gmail.modify`, which is broader than what the code actually does (read + labels + Inbox changes; no send). A smaller pair such as `gmail.readonly` + `gmail.labels` is worth trying if every current behavior still works. Scope changes force existing users to re-authorize, so this waits.
+
+- **Cross-platform worker locks.**  
+  Workers and migration helpers use `fcntl`, so those tools need macOS or Linux. A portable lock would let scheduled workers and migration run on Windows too.
+
+- **Known-client subdomain matching.**  
+  A domain like `acme.com` matches `user@acme.com`, but not always `user@mail.acme.com`. Safe subdomain matching should still reject lookalikes such as `notacme.com`.
+
+- **Full mailbox reconciliation after expired history.**  
+  Recovery intentionally rechecks a bounded recent Inbox window, not the whole mailbox. A later mode could do a full sync for long outages, expired Gmail history, or manual repair.
+
+- **Configurable recovery window.**  
+  History recovery is about **7 days** today. Something like `HISTORY_RECOVERY_DAYS` would let you widen or narrow that window.
+
+- **Explicit reprocessing tools.**  
+  A deliberate command to reprocess a date range, Gmail query, or chosen threads — instead of stripping labels by hand or overriding `GMAIL_QUERY`.
+
+- **Optional reconciliation / repair mode.**  
+  A maintenance pass that inspects workflow labels and fixes odd states from older versions, interrupted runs, or manual Gmail edits.
+
+- **Shared retry for more worker Gmail calls.**  
+  Some history, recovery, label-reset, and query-probe calls still hit the API without the shared retry/backoff helper. Failures stay fail-safe (history checkpoint does not advance), but transient Gmail errors can still abort a run unnecessarily.
+
+- **Less duplicate work around history boundaries.**  
+  The live worker records its history boundary before classification. Mail that arrives mid-run can get classified now and show up again on the next history scan. Safe, but it can mean occasional duplicate Jev/API work.
+
+- **More mocked Gmail integration tests.**  
+  The suite already covers the main safety and routing paths. More mocks could cover full worker flows, history expiry, pagination, OAuth failures, partial API failures, label replacement, migrations, and recovery races.
+
+- **More Python versions in CI.**  
+  CI runs 3.11 and 3.12. Newer versions (3.13+) can join once dependencies are confirmed.
+
+- **Log rotation and retention.**  
+  Logs and JSONL decision files can grow forever on long-running installs. Optional size- or time-based rotation would help.
+
+- **Clearer handling of contradictory model outputs.**  
+  Some contradictions are already deterministic (for example newsletter + real action). Other odd pairs — such as very high `reply_needed` on a non-human message type — could route to Review on purpose.
+
+- **Shared Gmail auth helper.**  
+  OAuth load / refresh / re-login logic lives in more than one script. One shared module would keep recovery behavior consistent.
+
+- **Dependency upgrades on purpose.**  
+  Stay on tested pins rather than chasing every release. Bump packages such as `typesafe-sdk` only after a compatibility check.
+
+- **`SECURITY.md`.**  
+  Short policy on credentials, OAuth/token exposure, vulnerability reporting, email-data handling, and how to disclose issues safely.
+
+- **`CONTRIBUTING.md`.**  
+  Setup, tests, style, privacy expectations, and a hard rule against committing real mail or credentials — once outside contributions start.
 
 ---
 
