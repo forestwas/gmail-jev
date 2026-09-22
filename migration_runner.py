@@ -92,8 +92,8 @@ def main():
             "after you have reviewed a dry-run."
         )
         print(
-            "Tip: APPLY_MIGRATION=false python migration_runner.py "
-            "still classifies into validation.jsonl when DRY_RUN=true."
+            "Dry-run runs a single batch only (Gmail labels are unchanged, "
+            "so the same threads would otherwise repeat forever)."
         )
 
     log_path_for_summary = VALIDATION if not apply else DECISIONS
@@ -113,7 +113,7 @@ def main():
             f"Starting batch {batch_number}..."
         )
 
-        with log_path.open("w") as log_file:
+        with log_path.open("w", encoding="utf-8") as log_file:
             result = subprocess.run(
                 [str(PYTHON), str(MAIN)],
                 cwd=ROOT,
@@ -133,13 +133,14 @@ def main():
             print()
 
             lines = log_path.read_text(
-                errors="replace"
+                encoding="utf-8",
+                errors="replace",
             ).splitlines()
 
             print("\n".join(lines[-80:]))
             sys.exit(result.returncode or 1)
 
-        log_text = log_path.read_text(errors="replace")
+        log_text = log_path.read_text(encoding="utf-8", errors="replace")
         queue_empty = "Inbox is empty." in log_text
 
         if added == 0 and queue_empty:
@@ -176,6 +177,20 @@ def main():
             )
             print(f"  {label_text}")
 
+        # Dry-run cannot advance the Gmail queue (no labels written), so
+        # looping would re-classify the same threads forever.
+        if not apply:
+            print()
+            print(
+                "✓ Dry-run sample complete "
+                f"({summary['processed']} thread(s) in validation.jsonl)."
+            )
+            print(
+                "Run APPLY_MIGRATION=true python migration_runner.py "
+                "to process the live queue in batches."
+            )
+            return
+
         if added < batch_size:
             print()
             print(
@@ -196,6 +211,7 @@ def main():
     print(
         "Run the migration runner again if unprocessed mail remains."
     )
+    sys.exit(1)
 
 
 if __name__ == "__main__":

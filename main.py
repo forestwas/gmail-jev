@@ -388,13 +388,17 @@ def process_thread(
     )
 
     for message in messages:
+        body_text = decode_body(message.get("payload", {}))
+        if not body_text:
+            body_text = (message.get("snippet") or "").strip()
+
         conversation.append(
             f"""
     FROM: {get_header(message, "From")}
     TO: {get_header(message, "To")}
     DATE: {get_header(message, "Date")}
 
-    {decode_body(message["payload"])}
+    {body_text}
     """.strip()
         )
 
@@ -549,7 +553,7 @@ def process_thread(
 
     log_path = "validation.jsonl" if dry_run else "decisions.jsonl"
 
-    with open(log_path, "a") as log_file:
+    with open(log_path, "a", encoding="utf-8") as log_file:
         log_file.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
 
     return "ok"

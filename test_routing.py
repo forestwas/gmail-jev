@@ -12,6 +12,7 @@ from routing import (
 from workflow import (
     BACKFILL_QUERY,
     DEFAULT_GMAIL_QUERY,
+    HISTORY_RECOVERY_QUERY,
     LIVE_QUERY,
     WORKER_LOCK_NAME,
     WORKFLOW_LABELS,
@@ -35,6 +36,11 @@ class WorkflowQueryTests(unittest.TestCase):
         self.assertIn("newer_than:1d", LIVE_QUERY)
         self.assertIn("older_than:1d", BACKFILL_QUERY)
         self.assertNotIn("newer_than:2d", LIVE_QUERY)
+
+    def test_history_recovery_query_includes_labeled_mail(self):
+        self.assertEqual(HISTORY_RECOVERY_QUERY, "in:inbox newer_than:7d")
+        for name in WORKFLOW_LABELS:
+            self.assertNotIn(f'-label:"{name}"', HISTORY_RECOVERY_QUERY)
 
     def test_workers_share_one_lock_name(self):
         self.assertEqual(WORKER_LOCK_NAME, ".worker.lock")
@@ -189,6 +195,28 @@ class RoutingTests(unittest.TestCase):
             )
         )
 
+    def test_newsletter_does_not_archive_when_action_needed(self):
+        self.assertFalse(
+            should_archive_thread(
+                message_type="newsletter",
+                message_type_confidence=0.90,
+                can_archive=0.05,
+                reply_needed=0.10,
+                action_required=0.95,
+            )
+        )
+
+    def test_newsletter_does_not_archive_when_reply_needed(self):
+        self.assertFalse(
+            should_archive_thread(
+                message_type="newsletter",
+                message_type_confidence=0.90,
+                can_archive=0.05,
+                reply_needed=0.95,
+                action_required=0.10,
+            )
+        )
+
     def test_does_not_archive_when_reply_needed(self):
         self.assertFalse(
             should_archive_thread(
@@ -224,6 +252,17 @@ class SafetyInvariantTests(unittest.TestCase):
         source = (ROOT / "migration_runner.py").read_text(encoding="utf-8")
         self.assertIn('env_flag("APPLY_MIGRATION", "false")', source)
         self.assertIn('env["DRY_RUN"] = "false" if apply else "true"', source)
+        self.assertIn("Dry-run sample complete", source)
+        self.assertIn("if not apply:", source)
+
+    def test_live_worker_dry_run_does_not_advance_history(self):
+        source = (ROOT / "live_worker.py").read_text(encoding="utf-8")
+        self.assertIn(
+            'log("DRY_RUN: history checkpoint not advanced.")',
+            source,
+        )
+        self.assertIn("HISTORY_RECOVERY_QUERY", source)
+        self.assertIn("history_expired", source)
 
     def test_wrapper_root_is_script_directory(self):
         live = (ROOT / "scripts" / "run_live.sh.example").read_text()

@@ -13,7 +13,13 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-from workflow import LIVE_QUERY, SCOPES, WORKER_LOCK_NAME, WORKFLOW_LABELS
+from workflow import (
+    HISTORY_RECOVERY_QUERY,
+    LIVE_QUERY,
+    SCOPES,
+    WORKER_LOCK_NAME,
+    WORKFLOW_LABELS,
+)
 
 ROOT = Path(__file__).resolve().parent
 VENV_PYTHON = ROOT / ".venv" / "bin" / "python"
@@ -84,9 +90,9 @@ def label_map(gmail):
     }
 
 
-def run_main():
+def run_main(gmail_query=LIVE_QUERY):
     env = os.environ.copy()
-    env["GMAIL_QUERY"] = LIVE_QUERY
+    env["GMAIL_QUERY"] = gmail_query
 
     result = subprocess.run(
         [PYTHON, str(MAIN)],
@@ -97,7 +103,7 @@ def run_main():
         timeout=900,
     )
 
-    with DETAIL.open("a") as f:
+    with DETAIL.open("a", encoding="utf-8") as f:
         f.write("\n\n" + "=" * 80 + "\n")
         f.write(datetime.now().isoformat() + "\n")
         f.write(result.stdout)
@@ -199,15 +205,15 @@ def remove_old_workflow_labels(gmail, thread_ids, dry_run):
     return changed, failed
 
 
-def process_unprocessed_recent():
+def process_batches(gmail_query, label="Live"):
     # Under normal conditions this is a few threads.
     # If backlog builds up, process at most 5 x 100 threads.
     for batch in range(1, 6):
-        result = run_main()
+        result = run_main(gmail_query)
 
         if result.returncode != 0:
             log(
-                f"Live main.py failed. "
+                f"{label} main.py failed. "
                 f"returncode={result.returncode}"
             )
             return False
@@ -215,7 +221,7 @@ def process_unprocessed_recent():
         if "Inbox is empty." in result.stdout:
             return True
 
-        log(f"Live batch {batch} completed.")
+        log(f"{label} batch {batch} completed.")
 
     return True
 
@@ -232,6 +238,7 @@ def run():
 
     previous = state.get("history_id")
     reset_failed = 0
+    history_expired = False
 
     if previous:
         try:
@@ -256,9 +263,10 @@ def run():
         except HttpError as e:
             # Gmail may return 404 when historyId is too old.
             if e.resp.status == 404:
+                history_expired = True
                 log(
                     "History ID expired; "
-                    "falling back to recent inbox scan."
+                    "running inbox recovery without workflow-label exclusions."
                 )
             else:
                 raise
@@ -268,7 +276,17 @@ def run():
             "First live run; creating history starting point."
         )
 
-    ok = process_unprocessed_recent()
+    if history_expired:
+        # Full correct sync of the whole mailbox is out of scope; recover a
+        # recent inbox window including already-labeled threads.
+        ok = process_batches(HISTORY_RECOVERY_QUERY, label="Recovery")
+    else:
+        ok = process_batches(LIVE_QUERY, label="Live")
+
+    # Dry-run must not consume production history state.
+    if dry_run:
+        log("DRY_RUN: history checkpoint not advanced.")
+        return ok
 
     # Only advance the history checkpoint after a successful classify pass
     # and when re-queue mutations did not fail (avoids skipping mail).

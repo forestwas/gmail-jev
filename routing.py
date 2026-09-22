@@ -149,14 +149,15 @@ def should_archive_thread(
     reply_needed: float,
     action_required: float,
 ) -> bool:
+    # Never archive when the model still wants a reply or concrete action,
+    # including newsletter shortcuts.
+    if reply_needed >= 0.50 or action_required >= 0.50:
+        return False
+
     return (
         (
             message_type == "newsletter"
             and message_type_confidence >= 0.65
         )
-        or (
-            can_archive >= 0.70
-            and reply_needed < 0.50
-            and action_required < 0.50
-        )
+        or can_archive >= 0.70
     )

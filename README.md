@@ -504,17 +504,19 @@ Jev answers things like relationship, message type, reply/action/waiting/archive
 python migration_reset.py                          # audit only
 APPLY_MIGRATION_RESET=true python migration_reset.py
 
-python migration_runner.py                         # dry-run batches
-APPLY_MIGRATION=true python migration_runner.py    # live writes
+python migration_runner.py                         # dry-run: one sample batch only
+APPLY_MIGRATION=true python migration_runner.py    # live writes in batches
 ```
 
-`migration_runner.py` stays dry-run unless `APPLY_MIGRATION=true`. If Jev errors out, it fails instead of saying “done.” Keep snapshot/decision files private.
+`migration_runner.py` stays dry-run unless `APPLY_MIGRATION=true`. Dry-run classifies **one** batch into `validation.jsonl` and stops (without labels, the same threads would otherwise repeat forever). If Jev errors out, it fails instead of saying “done.” Keep snapshot/decision files private.
 
 ---
 
 ## Privacy notes
 
-Mail can include passwords, contracts, money stuff, and private talks. You own the risk: protect keys, know that TypeSafe/Google see what your run sends them, and decide if this tool fits your mailbox.
+Mail can include passwords, contracts, money stuff, and private talks. You own the risk: protect keys and decide if this tool fits your mailbox.
+
+Classification sends **subject, From/To/Date headers, and message body text** (truncated) to the TypeSafe API, plus your mailbox address for “who is the owner” context. This code does **not** upload attachments. Google sees the usual Gmail API traffic for listing/modifying threads.
 
 Never commit:
 
@@ -537,7 +539,7 @@ The code does not send mail and does not hard-delete threads. It labels and can 
 TypeSafe’s System One model. It returns structured answers your code can branch on, not a long chat essay. More: [docs.typesafe.ai](https://docs.typesafe.ai/).
 
 **Dry-run changed my labels anyway?**  
-With `DRY_RUN=true` (default), `main.py` should skip label writes, and `live_worker.py` only logs would-be re-queues. Double-check the env on that process, and that you did not set `APPLY_MIGRATION=true`.
+With `DRY_RUN=true` (default), `main.py` should skip label writes, and `live_worker.py` only logs would-be re-queues **and does not advance** `live_history_state.json`. Double-check the env on that process, and that you did not set `APPLY_MIGRATION=true`.
 
 **Unverified app warning?**  
 Normal in Testing. Add yourself as test user. Grants often last about a week; re-run `gmail_test.py` when they expire.
