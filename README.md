@@ -54,92 +54,180 @@ Don’t put keys into git or into a public chat. See [Privacy notes](#privacy-no
 
 ---
 
-## Path B: use an assistant (simple English)
+## Path B: use an AI tool (simple English)
 
-This path is for people who do **not** want to learn coding. If you can use ChatGPT, Claude, or Cursor, that is enough. The assistant will tell you what to click and what to paste. You still do the Google and TypeSafe steps in your browser. You decide when Gmail may change.
+This path is for people who do **not** want to learn coding.
 
-### Rough steps
+You need:
 
-1. Open this GitHub page and say you want to install **gmail-jev** on your computer.
-2. Install whatever the assistant asks for (often Python). Let it pick the right steps for Mac or Windows.
-3. Download the project folder (clone). The assistant gives you the command.
-4. Make a TypeSafe account and key at [typesafe.ai](https://typesafe.ai). Put the key only in a local `.env` file on your computer. Do not paste the key into a public chat if you can avoid it.
-5. In [Google Cloud](https://console.cloud.google.com/), turn on Gmail API, set up the consent screen, create a Desktop OAuth client, download the JSON, save it as `credentials.json` next to the project files.
-6. Install the Python packages (assistant gives commands).
-7. Run the small tests. A browser window may ask you to allow Gmail access. Say yes for your own account.
-8. Run a **practice mode** first (`DRY_RUN=true`). Look at the suggested labels. Nothing should change in Gmail yet.
-9. When you are happy, allow real labeling (`DRY_RUN=false`) on a small batch.
-10. Later you can ask the assistant to schedule the workers if you want.
+- This project link: https://github.com/forestwas/gmail-jev  
+- An AI tool you already use (ChatGPT, Claude, Cursor, Gemini, etc.)  
+- A normal web browser  
+- Your own computer (Mac or Windows)
 
-### Text to give your assistant
+The AI tool will tell you what to click and what to type. **You** still create the TypeSafe key and the Google login file in the browser. **You** decide when Gmail may change.
+
+Below, each step says **where** you are, **what to paste** into the AI tool, and **what you do**.
+
+### Step 1 — Start a chat with your AI tool
+
+1. Open your AI tool (website or app).  
+2. Start a **new chat**.  
+3. Copy-paste this message:
 
 ```text
-Help me set up https://github.com/forestwas/gmail-jev
+I want to install this project on my computer:
+https://github.com/forestwas/gmail-jev
+
+I am not a programmer. Guide me one small step at a time.
+My computer is: [Mac / Windows]   ← write one
 
 Rules:
-- Do not put .env, credentials.json, token.json, or clients.local.json into git
-- Do not ask me to paste my API key or my emails into a public chat
+- Do not put secrets into git
+- Do not ask me to paste my API key or my emails into this chat
 - Keep DRY_RUN=true until I clearly say I want real Gmail changes
-- First runs: only 5 to 10 conversations
+- First runs: only 5 conversations
 - Before each command, explain in one short plain sentence what it does
-- If something fails, fix from the error. Do not skip safety steps
 ```
 
-### Example things you can paste
+The AI tool should then check Python and get the project onto your machine.
 
-**Start**
+**About downloading the project:** many AI tools (especially Cursor) can open or download the GitHub link themselves. If yours can, let it. If it only gives you a command, run that command. You do not need to understand “clone.”
+
+### Step 2 — Install Python (only if the AI tool says you need it)
+
+Stay in the **same chat**. If the AI tool says Python is missing, ask:
 
 ```text
-I want to install https://github.com/forestwas/gmail-jev on my computer.
-I am not a programmer. Guide me one step at a time.
-Check Python, then download the project.
-Do not change Gmail yet. Stay in DRY_RUN.
-Do not commit secrets. Do not ask me to paste my API key into chat.
+Python is missing or too old. Tell me the exact clicks or commands
+for my computer ([Mac / Windows]) to install Python 3.11 or newer.
+One step at a time.
 ```
 
-**Accounts**
+Do what it says, then reply: `Done.`
+
+### Step 3 — Project folder on your computer
+
+If the AI tool has not already downloaded the project, paste:
 
 ```text
-I need a TypeSafe API key and Google Desktop login files for Gmail.
-Click-by-click please:
-1) TypeSafe key
-2) turn on Gmail API
-3) consent screen (Testing, add me as test user)
-4) Desktop OAuth client, download credentials.json
-Tell me where to save credentials.json and how to make .env from .env.example
-without repeating my secret values back to me.
+Put the gmail-jev project on my computer now.
+If you can download it from GitHub yourself, do that.
+If not, give me one copy-paste command and tell me where the folder will be.
 ```
 
-**Practice run**
+When finished, you should have a folder named something like `gmail-jev` on your computer. Remember that folder path (the AI tool should tell you).
+
+### Step 4 — TypeSafe account and API key (you do this in the browser)
+
+The project needs a TypeSafe key so Jev can run.
+
+1. Open this page in your browser: [https://typesafe.ai](https://typesafe.ai)  
+2. Create an account / sign in (use the buttons on that site).  
+3. Open the API keys page: [https://console.typesafe.ai/keys](https://console.typesafe.ai/keys)  
+   - If the site menu looks different, look for **API keys** or **Keys** after you sign in to the console.  
+4. Create a new key. Copy it once (it looks like a long secret string). Treat it like a password.  
+5. Go back to your AI chat and paste:
 
 ```text
-Install is done. credentials.json and .env are on my machine.
-Give exact commands for:
-1) jev_test.py
-2) gmail_test.py
-3) main.py dry-run on 5 conversations
-Explain the result file in simple English.
+I have a TypeSafe API key on my clipboard.
+In the gmail-jev folder, create .env from .env.example.
+I will type TYPESAFE_API_KEY into .env myself.
+Do not ask me to paste the key into this chat.
+Also set DRY_RUN=true and MAILBOX_OWNER_NAME to my first name.
+```
+
+Then open `.env` on your computer (the AI tool can open it in Cursor, or tell you how to open it in a text editor). Put your key after `TYPESAFE_API_KEY=` with **no spaces**. Save the file.
+
+If TypeSafe asks you to join a waitlist before keys work, finish that first, then come back to this step.
+
+### Step 5 — Google login file for Gmail (you do this in the browser)
+
+You need a file called `credentials.json` next to the project files. Paste this into the AI chat so it can guide clicks, then do the clicks yourself:
+
+```text
+I need Google Desktop OAuth credentials for Gmail for gmail-jev.
+Guide me click by click. I will do the browser steps.
+Cover:
+1) open https://console.cloud.google.com/ and create/select a project
+2) enable Gmail API
+3) OAuth consent screen (Testing; add my Google account as test user)
+4) create OAuth client ID type Desktop app
+5) download the JSON and save it as credentials.json inside my gmail-jev folder
+Remind me: Testing access often expires after about 7 days.
+```
+
+When done, `credentials.json` must sit in the same folder as `main.py`.
+
+### Step 6 — Install project packages
+
+Paste:
+
+```text
+Inside the gmail-jev folder, create a Python virtual environment
+and install requirements.txt.
+Give me the exact commands for [Mac / Windows], one at a time.
+```
+
+Run what it gives you. Reply `Done` after each step if it asks.
+
+### Step 7 — Small tests + Google permission window
+
+Paste:
+
+```text
+Run the small tests: jev_test.py then gmail_test.py.
+Explain each in one sentence first.
+A browser window may ask me to allow Gmail access — that is normal.
+I will approve my own account.
+```
+
+When the browser asks, choose your Gmail account and allow access. After this, a `token.json` file should appear in the project folder (keep it private).
+
+### Step 8 — Practice mode (no Gmail label changes)
+
+Paste:
+
+```text
+Run main.py in practice mode on 5 conversations:
+DRY_RUN=true MAX_RESULTS=5
+Then open validation.jsonl and explain the suggested labels in simple English.
 Do not turn DRY_RUN off.
 ```
 
-**Real labels (only when ready)**
+Check that Gmail labels did **not** change. If something looks wrong, stay in practice mode and ask the AI tool to help.
+
+### Step 9 — Real labels (only when you are ready)
+
+Paste:
 
 ```text
-I checked the practice results. I accept that labels may change in my Gmail.
-Give the safest small live command (DRY_RUN=false, MAX_RESULTS=10).
-Tell me what will change before I run it.
+I reviewed the practice results. I accept that labels may change in my Gmail.
+Give the safest small live command:
+DRY_RUN=false MAX_RESULTS=10
+Explain what will change before I run it. Wait for my OK.
 ```
 
-**Cursor**
+Only run it after you understand the explanation.
+
+### Step 10 — Optional: run automatically later
+
+Paste when you want:
 
 ```text
-Set up this repo on my machine.
-Make .env from .env.example (I will type TYPESAFE_API_KEY myself).
-No secrets in git. Keep DRY_RUN=true.
-Run unit tests and a 5-conversation dry-run, then summarize.
+Help me schedule live_worker.py and backfill_worker.py on my computer
+using the examples in the README. Keep secrets in .env. One step at a time.
 ```
 
-When Path B works, you can ignore the long DIY pages, or ask the assistant to keep helping with [workers](#keep-it-running) and [customize](#customize).
+### If you get stuck
+
+Paste the error text (hide any keys) and:
+
+```text
+Here is the error. Fix it one step at a time. Keep DRY_RUN=true.
+```
+
+When Path B works, you can ignore the long DIY pages, or keep using the same AI chat for [workers](#keep-it-running) and [customize](#customize).
 
 ---
 
