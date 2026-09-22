@@ -10,10 +10,10 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
+from workflow import MIGRATION_RESET_LABELS, SCOPES
+
 ROOT = Path(__file__).resolve().parent
 TOKEN = ROOT / "token.json"
-
-SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 
 APPLY = os.getenv("APPLY_MIGRATION_RESET", "false").lower() in {
     "1",
@@ -21,38 +21,7 @@ APPLY = os.getenv("APPLY_MIGRATION_RESET", "false").lower() in {
     "yes",
 }
 
-WORKFLOW_LABEL_NAMES = [
-    # Final v3
-    "01 — Reply",
-    "02 — Action Required",
-    "03 — Waiting",
-    "04 — Clients",
-    "05 — Leads",
-    "06 — Finance",
-    "07 — Calendar",
-    "08 — Read Later",
-    "09 — System",
-    "97 — Other",
-    "98 — Review",
-
-    # Legacy v2
-    "02 — Leads",
-    "03 — Clients",
-    "04 — Finance",
-    "05 — Waiting",
-    "06 — Read Later",
-    "07 — Action Required",
-    "08 — Calendar",
-    "99 — Processed",
-
-    # Intermediate v3
-    "10 — Clients",
-    "11 — Leads",
-    "12 — Finance",
-    "13 — Calendar",
-    "14 — Read Later",
-    "15 — System",
-]
+WORKFLOW_LABEL_NAMES = MIGRATION_RESET_LABELS
 
 
 def gmail_service():

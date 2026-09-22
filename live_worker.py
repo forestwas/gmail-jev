@@ -11,6 +11,8 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
+from workflow import LIVE_QUERY, SCOPES, WORKFLOW_LABELS
+
 ROOT = Path(__file__).resolve().parent
 VENV_PYTHON = ROOT / ".venv" / "bin" / "python"
 PYTHON = str(VENV_PYTHON if VENV_PYTHON.exists() else Path(sys.executable))
@@ -21,37 +23,6 @@ STATE = ROOT / "live_history_state.json"
 LOCK = ROOT / ".live.lock"
 LOG = ROOT / "live.log"
 DETAIL = ROOT / "live-detail.log"
-
-SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
-
-WORKFLOW_LABELS = [
-    "01 — Reply",
-    "02 — Action Required",
-    "03 — Waiting",
-    "04 — Clients",
-    "05 — Leads",
-    "06 — Finance",
-    "07 — Calendar",
-    "08 — Read Later",
-    "09 — System",
-    "97 — Other",
-    "98 — Review",
-]
-
-LIVE_QUERY = (
-    'in:inbox newer_than:2d '
-    '-label:"01 — Reply" '
-    '-label:"02 — Action Required" '
-    '-label:"03 — Waiting" '
-    '-label:"04 — Clients" '
-    '-label:"05 — Leads" '
-    '-label:"06 — Finance" '
-    '-label:"07 — Calendar" '
-    '-label:"08 — Read Later" '
-    '-label:"09 — System" '
-    '-label:"97 — Other" '
-    '-label:"98 — Review"'
-)
 
 
 def log(msg):

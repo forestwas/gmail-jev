@@ -5,6 +5,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from workflow import BACKFILL_QUERY
+
 ROOT = Path(__file__).resolve().parent
 VENV_PYTHON = ROOT / ".venv" / "bin" / "python"
 PYTHON = str(VENV_PYTHON if VENV_PYTHON.exists() else Path(sys.executable))
@@ -13,21 +15,6 @@ MAIN = ROOT / "main.py"
 LOCK = ROOT / ".backfill.lock"
 LOG = ROOT / "backfill.log"
 DETAIL = ROOT / "backfill-detail.log"
-
-QUERY = (
-    'in:inbox older_than:1d '
-    '-label:"01 — Reply" '
-    '-label:"02 — Action Required" '
-    '-label:"03 — Waiting" '
-    '-label:"04 — Clients" '
-    '-label:"05 — Leads" '
-    '-label:"06 — Finance" '
-    '-label:"07 — Calendar" '
-    '-label:"08 — Read Later" '
-    '-label:"09 — System" '
-    '-label:"97 — Other" '
-    '-label:"98 — Review"'
-)
 
 
 def log(msg):
@@ -39,7 +26,7 @@ def log(msg):
 
 def run():
     env = os.environ.copy()
-    env["GMAIL_QUERY"] = QUERY
+    env["GMAIL_QUERY"] = BACKFILL_QUERY
 
     result = subprocess.run(
         [PYTHON, str(MAIN)],

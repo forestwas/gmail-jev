@@ -63,6 +63,12 @@ python jev_test.py      # TypeSafe connectivity
 python gmail_test.py    # Gmail OAuth + profile
 ```
 
+### Unit tests (no network)
+
+```bash
+python -m unittest test_routing.py
+```
+
 ## Usage
 
 ### Dry-run classification (recommended first)
@@ -137,10 +143,13 @@ live_worker / backfill_worker
         ▼
      main.py  ──►  Gmail API (read/modify)
         │
+        ├── workflow.py   (labels + queries)
+        ├── routing.py    (pure label decisions)
+        ├── gmail_utils.py
         └──►  TypeSafe Jev (typed judgments)
 ```
 
-`main.py` is the single classification engine. Workers only choose the query, handle locking/state, and invoke that engine.
+`main.py` is the classification engine. Workers only choose the query, handle locking/state, and invoke that engine. Routing rules are unit-tested without network access.
 
 ## License
 
