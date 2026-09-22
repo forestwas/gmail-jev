@@ -20,20 +20,22 @@ After processing, Gmail shows numbered workflow labels in the sidebar and as col
 
 1. [Who this is for](#who-this-is-for)
 2. [What you will need](#what-you-will-need)
-3. [Quick start (checklist)](#quick-start-checklist)
-4. [Step-by-step setup](#step-by-step-setup)
-5. [First safe run (dry-run)](#first-safe-run-dry-run)
-6. [Apply labels for real](#apply-labels-for-real)
-7. [Continuous automation](#continuous-automation)
-8. [Workflow labels](#workflow-labels)
-9. [How classification works](#how-classification-works)
-10. [Customize labels, rules, and prompts](#customize-labels-rules-and-prompts)
-11. [Configuration reference](#configuration-reference)
-12. [Project layout](#project-layout)
-13. [Migration helpers](#migration-helpers)
-14. [Security](#security)
-15. [FAQ](#faq)
-16. [License](#license)
+3. [Path A — Do it yourself](#path-a--do-it-yourself)
+4. [Path B — Set up with an AI assistant](#path-b--set-up-with-an-ai-assistant)
+5. [Quick start (checklist)](#quick-start-checklist)
+6. [Step-by-step setup](#step-by-step-setup)
+7. [First safe run (dry-run)](#first-safe-run-dry-run)
+8. [Apply labels for real](#apply-labels-for-real)
+9. [Continuous automation](#continuous-automation)
+10. [Workflow labels](#workflow-labels)
+11. [How classification works](#how-classification-works)
+12. [Customize labels, rules, and prompts](#customize-labels-rules-and-prompts)
+13. [Configuration reference](#configuration-reference)
+14. [Project layout](#project-layout)
+15. [Migration helpers](#migration-helpers)
+16. [Security](#security)
+17. [FAQ](#faq)
+18. [License](#license)
 
 ---
 
@@ -41,15 +43,17 @@ After processing, Gmail shows numbered workflow labels in the sidebar and as col
 
 | You are… | Start here |
 | --- | --- |
-| New to the project | [Quick start](#quick-start-checklist) → [Step-by-step setup](#step-by-step-setup) |
-| Comfortable with Python / APIs | Clone, follow Google + TypeSafe sections, run dry-run |
-| Tuning behavior | [Customize labels, rules, and prompts](#customize-labels-rules-and-prompts) + [FAQ](#faq) |
+| Prefer to follow docs yourself | [Path A — Do it yourself](#path-a--do-it-yourself) |
+| Prefer ChatGPT / Claude / Cursor to drive the setup | [Path B — Set up with an AI assistant](#path-b--set-up-with-an-ai-assistant) |
+| Tuning behavior later | [Customize labels, rules, and prompts](#customize-labels-rules-and-prompts) + [FAQ](#faq) |
 | Migrating an old label scheme | [Migration helpers](#migration-helpers) |
 
 You should be comfortable doing **one** of the following:
 
 - Handling these steps yourself: running terminal commands, creating a Google Cloud project and downloading OAuth credentials, and editing a few Python/config files if you want custom labels or thresholds  
-- **or** walking through the same steps with an AI assistant (ChatGPT, Claude, Cursor, etc.) without needing deep technical knowledge or hand-editing code yourself
+  → **Guide:** [Path A — Do it yourself](#path-a--do-it-yourself) (then [Quick start](#quick-start-checklist) and [Step-by-step setup](#step-by-step-setup))
+- **or** walking through the same steps with an AI assistant (ChatGPT, Claude, Cursor, etc.) without needing deep technical knowledge or hand-editing code yourself  
+  → **Guide:** [Path B — Set up with an AI assistant](#path-b--set-up-with-an-ai-assistant)
 
 You do **not** need to train a model. Jev is used through the TypeSafe API.
 
@@ -86,7 +90,116 @@ You do **not** need to train a model. Jev is used through the TypeSafe API.
 
 ---
 
+## Path A — Do it yourself
+
+Use this path if you are fine with the terminal, Google Cloud Console, and light config editing.
+
+1. Skim [What you will need](#what-you-will-need) so you know which accounts/keys to create.  
+2. Follow the [Quick start (checklist)](#quick-start-checklist).  
+3. Use [Step-by-step setup](#step-by-step-setup) for Google Console, TypeSafe, and install details.  
+4. Always start with a [dry-run](#first-safe-run-dry-run) before [applying labels](#apply-labels-for-real).  
+5. When you want automation, see [Continuous automation](#continuous-automation).  
+6. To change behavior later, see [Customize labels, rules, and prompts](#customize-labels-rules-and-prompts).
+
+Keep secrets out of chat logs and git — see [Security](#security).
+
+---
+
+## Path B — Set up with an AI assistant
+
+Use this path if you want ChatGPT, Claude, Cursor, or a similar assistant to walk you through setup **without** needing to understand the codebase. You still click through Google / TypeSafe in the browser and approve what the assistant asks you to run.
+
+### Rough sequence (no technical background required)
+
+1. **Open this repository** on GitHub and tell the assistant you want to install **gmail-jev** on your computer.  
+2. **Install helpers** the assistant asks for (usually Python). On Mac this is often “install Xcode command line tools” or Python from python.org — let the assistant choose for your OS.  
+3. **Clone the project** — the assistant gives you a pasteable command; you run it in Terminal (or let Cursor Agent run it).  
+4. **Create a TypeSafe API key** at [typesafe.ai](https://typesafe.ai) and paste it only into a local `.env` file (never into a public chat if you can avoid it; prefer Cursor/local tools that keep secrets on your machine).  
+5. **Create Google Cloud OAuth credentials** — the assistant should open/guide [Google Cloud Console](https://console.cloud.google.com/): enable Gmail API → OAuth consent screen → Desktop OAuth client → download JSON → rename/save as `credentials.json` in the project folder.  
+6. **Install Python packages** inside a virtual environment (assistant provides the commands).  
+7. **Run smoke tests** (`jev_test.py`, `gmail_test.py`) and complete the browser Google login when it opens.  
+8. **Dry-run first** on a few threads (`DRY_RUN=true`) and ask the assistant to explain the proposed labels in plain language.  
+9. **Only then** allow live labeling (`DRY_RUN=false`).  
+10. **Optional:** ask the assistant to set up a schedule (cron / launchd) using the examples in this README.
+
+### Safety rules to tell the assistant (copy this)
+
+```text
+Rules for helping me set up https://github.com/forestwas/gmail-jev :
+- Never commit .env, credentials.json, token.json, or clients.local.json
+- Never ask me to paste API keys or email contents into a public chat
+- Always use DRY_RUN=true until I explicitly say I want live Gmail writes
+- Prefer small MAX_RESULTS (like 5–10) for the first runs
+- Explain each command in one plain-English sentence before I run it
+- If something fails, diagnose from the error text; do not skip security steps
+```
+
+### Example prompts
+
+**1) Kickoff (any assistant)**
+
+```text
+I want to install and run this project on my Mac:
+https://github.com/forestwas/gmail-jev
+
+I am not technical. Guide me one step at a time.
+Start by checking whether Python 3.11+ is installed, then clone the repo.
+Do not modify Gmail yet. We will stay in DRY_RUN until I say otherwise.
+Follow the safety rules: no committing secrets, no pasting my API key into chat.
+```
+
+**2) TypeSafe + Google credentials**
+
+```text
+Next I need a TypeSafe API key and Google Desktop OAuth credentials for Gmail.
+Walk me through the browser clicks for:
+1) creating a TypeSafe API key
+2) enabling Gmail API in Google Cloud
+3) OAuth consent screen (Testing + my account as test user)
+4) creating a Desktop OAuth client and downloading credentials.json
+Tell me exactly where to save credentials.json and how to create .env
+from .env.example without showing my secret values back to me.
+```
+
+**3) First dry-run**
+
+```text
+Packages are installed and credentials.json / .env exist locally.
+Give me the exact commands to:
+1) run jev_test.py
+2) run gmail_test.py
+3) dry-run main.py on 5 threads
+Then help me interpret validation.jsonl in plain English.
+Do not set DRY_RUN=false.
+```
+
+**4) Go live (only when you are ready)**
+
+```text
+I reviewed the dry-run results and accept the risk of labeling my mailbox.
+Give me the safest command to process a small batch live
+(DRY_RUN=false, MAX_RESULTS=10). Explain what will change in Gmail
+before I run it.
+```
+
+**5) Cursor-specific (agent can edit files for you)**
+
+```text
+Open this repo and set it up for me locally.
+Create .env from .env.example (I will paste TYPESAFE_API_KEY into the file myself).
+Do not commit secrets. Keep DRY_RUN=true.
+After install, run the unit tests and a 5-thread dry-run, then summarize results.
+```
+
+### After Path B succeeds
+
+You can optionally skim [Step-by-step setup](#step-by-step-setup) later for reference, or stay with the assistant for [continuous workers](#continuous-automation) and [customization](#customize-labels-rules-and-prompts).
+
+---
+
 ## Quick start (checklist)
+
+For Path A (DIY). Path B users can treat this as a progress list the assistant should complete with you.
 
 Use this as a progress tracker:
 
@@ -104,6 +217,8 @@ Use this as a progress tracker:
 ---
 
 ## Step-by-step setup
+
+Detailed Path A instructions. Path B assistants can follow the same steps while explaining them in plain language.
 
 ### 1. Get the code
 
