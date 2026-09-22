@@ -46,13 +46,14 @@ After processing, Gmail shows numbered workflow labels in the sidebar and as col
 | Tuning behavior | [Customize labels, rules, and prompts](#customize-labels-rules-and-prompts) + [FAQ](#faq) |
 | Migrating an old label scheme | [Migration helpers](#migration-helpers) |
 
-You should be comfortable:
+You should be comfortable doing **one** of the following:
 
-- Running terminal commands
-- Creating a Google Cloud project and downloading OAuth credentials
-- Editing a few Python/config files if you want custom labels or thresholds
+- Handling these steps yourself: running terminal commands, creating a Google Cloud project and downloading OAuth credentials, and editing a few Python/config files if you want custom labels or thresholds  
+- **or** walking through the same steps with an AI assistant (ChatGPT, Claude, Cursor, etc.) without needing deep technical knowledge or hand-editing code yourself
 
 You do **not** need to train a model. Jev is used through the TypeSafe API.
+
+> **Caution — your responsibility:** Email often contains highly sensitive personal, financial, legal, and business information. This software runs under **your** Google account and API keys, can read message content, and can change labels / archive mail. Review the setup, start with dry-run, and only enable live writes if you accept the privacy, security, and operational risks. The authors are not responsible for data exposure, mis-labeling, or mailbox changes caused by your configuration or use.
 
 ---
 
@@ -489,6 +490,8 @@ Snapshots and decision logs may contain thread IDs and subjects — keep them pr
 ---
 
 ## Security
+
+> **Caution:** Mailboxes can contain passwords, contracts, medical or financial details, and private conversations. You are responsible for protecting credentials, reviewing what leaves your machine (API calls to TypeSafe/Google), and deciding whether this tool is appropriate for your data.
 
 **Never commit:**
 
