@@ -17,7 +17,7 @@ Same labels show up in the left sidebar and as colored chips on each row. One co
 | You | Go here |
 | --- | --- |
 | Okay with Terminal + Google Cloud yourself | [Path A](#path-a-do-it-yourself) |
-| Prefer ChatGPT / Claude / Cursor to walk you through it | [Path B](#path-b-use-an-assistant-simple-english) |
+| Prefer ChatGPT / Claude / Cursor to walk you through it | [Path B](#path-b-use-an-ai-tool-simple-english) |
 | Want to change rules later | [Customize](#customize) |
 | Old labels to clean up | [Migration](#migration) |
 
@@ -145,7 +145,7 @@ When Path B works, you can ignore the long DIY pages, or ask the assistant to ke
 
 ## Checklist
 
-Handy for Path A. Path B people can tick the same boxes with their assistant.
+Handy for Path A. Path B people can tick the same boxes with their AI tool.
 
 1. [ ] Clone repo, make `.venv`, `pip install -r requirements.txt`
 2. [ ] TypeSafe key in `.env`
