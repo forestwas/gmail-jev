@@ -5,14 +5,16 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from workflow import BACKFILL_QUERY
+from dotenv import load_dotenv
+
+from workflow import BACKFILL_QUERY, WORKER_LOCK_NAME
 
 ROOT = Path(__file__).resolve().parent
 VENV_PYTHON = ROOT / ".venv" / "bin" / "python"
 PYTHON = str(VENV_PYTHON if VENV_PYTHON.exists() else Path(sys.executable))
 MAIN = ROOT / "main.py"
 
-LOCK = ROOT / ".backfill.lock"
+LOCK = ROOT / WORKER_LOCK_NAME
 LOG = ROOT / "backfill.log"
 DETAIL = ROOT / "backfill-detail.log"
 
@@ -34,6 +36,7 @@ def run():
         env=env,
         text=True,
         capture_output=True,
+        timeout=900,
     )
 
     with DETAIL.open("a") as f:
@@ -49,15 +52,18 @@ def run():
         log(
             f"Backfill failed. returncode={result.returncode}"
         )
-        return
+        return False
 
     if "Inbox is empty." in result.stdout:
         log("No unprocessed inbox threads older than 1 day remain.")
     else:
         log("Backfill batch of up to 100 threads completed.")
 
+    return True
+
 
 def main():
+    load_dotenv()
     LOCK.touch(exist_ok=True)
 
     with LOCK.open("r+") as lock:
@@ -70,11 +76,15 @@ def main():
             return
 
         try:
-            run()
+            ok = run()
         except Exception as e:
             log(
                 f"FATAL: {type(e).__name__}: {e}"
             )
+            raise SystemExit(1) from e
+
+        if not ok:
+            raise SystemExit(1)
 
 
 if __name__ == "__main__":

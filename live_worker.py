@@ -6,12 +6,14 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from dotenv import load_dotenv
 from google.auth.transport.requests import Request
+from google.auth.exceptions import RefreshError
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-from workflow import LIVE_QUERY, SCOPES, WORKFLOW_LABELS
+from workflow import LIVE_QUERY, SCOPES, WORKER_LOCK_NAME, WORKFLOW_LABELS
 
 ROOT = Path(__file__).resolve().parent
 VENV_PYTHON = ROOT / ".venv" / "bin" / "python"
@@ -20,9 +22,13 @@ MAIN = ROOT / "main.py"
 
 TOKEN = ROOT / "token.json"
 STATE = ROOT / "live_history_state.json"
-LOCK = ROOT / ".live.lock"
+LOCK = ROOT / WORKER_LOCK_NAME
 LOG = ROOT / "live.log"
 DETAIL = ROOT / "live-detail.log"
+
+
+def env_flag(name, default="false"):
+    return os.getenv(name, default).lower() in {"1", "true", "yes"}
 
 
 def log(msg):
@@ -39,8 +45,14 @@ def gmail_service():
     )
 
     if creds.expired and creds.refresh_token:
-        creds.refresh(Request())
-        TOKEN.write_text(creds.to_json())
+        try:
+            creds.refresh(Request())
+            TOKEN.write_text(creds.to_json())
+        except RefreshError as exc:
+            raise RuntimeError(
+                "Gmail token refresh failed. Re-run gmail_test.py or main.py "
+                "to authorize again (Testing OAuth apps expire after ~7 days)."
+            ) from exc
 
     return build("gmail", "v1", credentials=creds)
 
@@ -82,6 +94,7 @@ def run_main():
         env=env,
         text=True,
         capture_output=True,
+        timeout=900,
     )
 
     with DETAIL.open("a") as f:
@@ -138,7 +151,7 @@ def thread_is_inbox(thread):
     return False
 
 
-def remove_old_workflow_labels(gmail, thread_ids):
+def remove_old_workflow_labels(gmail, thread_ids, dry_run):
     labels = label_map(gmail)
 
     removable_ids = [
@@ -148,6 +161,7 @@ def remove_old_workflow_labels(gmail, thread_ids):
     ]
 
     changed = 0
+    failed = 0
 
     for thread_id in thread_ids:
         try:
@@ -158,6 +172,14 @@ def remove_old_workflow_labels(gmail, thread_ids):
             ).execute()
 
             if not thread_is_inbox(thread):
+                continue
+
+            if dry_run:
+                log(
+                    f"DRY_RUN: would re-queue thread {thread_id} "
+                    "(remove workflow labels)"
+                )
+                changed += 1
                 continue
 
             gmail.users().threads().modify(
@@ -171,9 +193,10 @@ def remove_old_workflow_labels(gmail, thread_ids):
             changed += 1
 
         except Exception as e:
+            failed += 1
             log(f"Thread reset error {thread_id}: {e}")
 
-    return changed
+    return changed, failed
 
 
 def process_unprocessed_recent():
@@ -198,6 +221,7 @@ def process_unprocessed_recent():
 
 
 def run():
+    dry_run = env_flag("DRY_RUN", "true")
     gmail = gmail_service()
     state = load_state()
 
@@ -207,6 +231,7 @@ def run():
     ).execute()["historyId"]
 
     previous = state.get("history_id")
+    reset_failed = 0
 
     if previous:
         try:
@@ -216,14 +241,16 @@ def run():
             )
 
             if changed_threads:
-                reset_count = remove_old_workflow_labels(
+                reset_count, reset_failed = remove_old_workflow_labels(
                     gmail,
                     changed_threads,
+                    dry_run=dry_run,
                 )
 
                 log(
                     f"{len(changed_threads)} threads with new messages; "
-                    f"{reset_count} inbox threads re-queued."
+                    f"{reset_count} inbox threads re-queued"
+                    f"{' (dry-run)' if dry_run else ''}."
                 )
 
         except HttpError as e:
@@ -241,17 +268,24 @@ def run():
             "First live run; creating history starting point."
         )
 
-    # Even if history did not change, retry recent mail that may
-    # have failed on a previous pass.
-    process_unprocessed_recent()
+    ok = process_unprocessed_recent()
 
-    state["history_id"] = boundary
-    save_state(state)
+    # Only advance the history checkpoint after a successful classify pass
+    # and when re-queue mutations did not fail (avoids skipping mail).
+    if ok and reset_failed == 0:
+        state["history_id"] = boundary
+        save_state(state)
+        log("Live check completed.")
+        return True
 
-    log("Live check completed.")
+    log(
+        "Live check incomplete; history checkpoint not advanced."
+    )
+    return False
 
 
 def main():
+    load_dotenv()
     LOCK.touch(exist_ok=True)
 
     with LOCK.open("r+") as lock:
@@ -264,11 +298,15 @@ def main():
             return
 
         try:
-            run()
+            ok = run()
         except Exception as e:
             log(
                 f"FATAL: {type(e).__name__}: {e}"
             )
+            raise SystemExit(1) from e
+
+        if not ok:
+            raise SystemExit(1)
 
 
 if __name__ == "__main__":

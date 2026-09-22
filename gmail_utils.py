@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import re
 
 
 def has_calendar_part(payload):
@@ -22,27 +23,55 @@ def has_calendar_part(payload):
     )
 
 
+def _decode_b64(data: str) -> str:
+    return base64.urlsafe_b64decode(
+        data + "=" * (-len(data) % 4)
+    ).decode("utf-8", errors="replace")
+
+
+def _html_to_text(html: str) -> str:
+    text = re.sub(
+        r"(?is)<(script|style).*?>.*?</\1>",
+        " ",
+        html,
+    )
+    text = re.sub(r"(?i)<br\s*/?>", "\n", text)
+    text = re.sub(r"(?i)</p>", "\n", text)
+    text = re.sub(r"(?s)<[^>]+>", " ", text)
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n\s*\n+", "\n\n", text)
+    return text.strip()
+
+
 def decode_body(payload):
-    text_parts = []
+    """Prefer text/plain; fall back to stripped text/html."""
+    plain_parts = []
+    html_parts = []
 
     def walk(part):
-        mime_type = part.get("mimeType", "")
+        mime_type = (part.get("mimeType") or "").lower()
         body = part.get("body", {})
         data = body.get("data")
 
-        if mime_type == "text/plain" and data:
-            decoded = base64.urlsafe_b64decode(
-                data + "=" * (-len(data) % 4)
-            ).decode("utf-8", errors="replace")
-
-            text_parts.append(decoded)
+        if data:
+            decoded = _decode_b64(data)
+            if mime_type == "text/plain":
+                plain_parts.append(decoded)
+            elif mime_type == "text/html":
+                html_parts.append(decoded)
 
         for child in part.get("parts", []):
             walk(child)
 
     walk(payload)
 
-    return "\n".join(text_parts).strip()
+    if plain_parts:
+        return "\n".join(plain_parts).strip()
+
+    if html_parts:
+        return "\n".join(_html_to_text(html) for html in html_parts).strip()
+
+    return ""
 
 
 def get_header(message, name):

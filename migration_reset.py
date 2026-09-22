@@ -5,6 +5,7 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
+from dotenv import load_dotenv
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -124,6 +125,8 @@ def apply_reset(gmail, name_to_id, thread_to_labels):
 
 
 def main():
+    load_dotenv()
+
     apply = os.getenv("APPLY_MIGRATION_RESET", "false").lower() in {
         "1",
         "true",

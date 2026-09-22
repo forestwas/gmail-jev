@@ -27,7 +27,8 @@ def inbox_excluding_workflow_labels(extra_terms: str = "") -> str:
 
 
 DEFAULT_GMAIL_QUERY = inbox_excluding_workflow_labels()
-LIVE_QUERY = inbox_excluding_workflow_labels("newer_than:2d")
+# Non-overlapping windows: live covers the last day; backfill covers older mail.
+LIVE_QUERY = inbox_excluding_workflow_labels("newer_than:1d")
 BACKFILL_QUERY = inbox_excluding_workflow_labels("older_than:1d")
 
 # Legacy / intermediate label names used only by migration_reset.py
@@ -51,3 +52,7 @@ LEGACY_WORKFLOW_LABELS = [
 ]
 
 MIGRATION_RESET_LABELS = WORKFLOW_LABELS + LEGACY_WORKFLOW_LABELS
+
+# Shared by live + backfill so the two workers cannot classify the same
+# thread at the same time.
+WORKER_LOCK_NAME = ".worker.lock"

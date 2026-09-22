@@ -16,6 +16,10 @@ __pycache__/
 live_history_state.json
 live_state.json
 
+# Local scheduler wrappers (may source secrets)
+run_live.sh
+run_backfill.sh
+
 # Decision / validation logs (may contain email metadata)
 *.log
 *.jsonl

@@ -6,36 +6,43 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 
 ROOT = Path(__file__).resolve().parent
 VENV_PYTHON = ROOT / ".venv" / "bin" / "python"
 PYTHON = VENV_PYTHON if VENV_PYTHON.exists() else Path(sys.executable)
 MAIN = ROOT / "main.py"
 DECISIONS = ROOT / "decisions.jsonl"
-
-BATCH_SIZE = int(os.getenv("MIGRATION_BATCH_SIZE", "100"))
-PAUSE_SECONDS = int(os.getenv("MIGRATION_PAUSE_SECONDS", "60"))
-MAX_BATCHES = int(os.getenv("MIGRATION_MAX_BATCHES", "50"))
+VALIDATION = ROOT / "validation.jsonl"
 
 
-def count_decisions():
-    if not DECISIONS.exists():
+def env_flag(name, default="false"):
+    return os.getenv(name, default).lower() in {"1", "true", "yes"}
+
+
+def count_rows(path):
+    if not path.exists():
         return 0
 
     return sum(
         1
-        for line in DECISIONS.read_text().splitlines()
+        for line in path.read_text().splitlines()
         if line.strip()
     )
 
 
-def summarize_new_rows(start_index):
-    if not DECISIONS.exists():
+def count_decisions():
+    return count_rows(DECISIONS)
+
+
+def summarize_new_rows(path, start_index):
+    if not path.exists():
         return {}
 
     rows = [
         json.loads(line)
-        for line in DECISIONS.read_text().splitlines()
+        for line in path.read_text().splitlines()
         if line.strip()
     ][start_index:]
 
@@ -48,6 +55,10 @@ def summarize_new_rows(start_index):
     return {
         "processed": len(rows),
         "archived": sum(bool(row.get("archived")) for row in rows),
+        "would_archive": sum(
+            bool(row.get("would_archive", row.get("archived")))
+            for row in rows
+        ),
         "review": sum(
             "98 — Review" in row.get("proposed_labels", [])
             for row in rows
@@ -57,21 +68,45 @@ def summarize_new_rows(start_index):
 
 
 def main():
+    load_dotenv()
+
+    apply = env_flag("APPLY_MIGRATION", "false")
+    batch_size = int(os.getenv("MIGRATION_BATCH_SIZE", "100"))
+    pause_seconds = int(os.getenv("MIGRATION_PAUSE_SECONDS", "60"))
+    max_batches = int(os.getenv("MIGRATION_MAX_BATCHES", "50"))
+
     print("Gmail v3 migration runner")
     print("=" * 60)
-    print(f"Batch size: {BATCH_SIZE}")
-    print(f"Pause: {PAUSE_SECONDS}s")
-    print(f"Maximum batches: {MAX_BATCHES}")
+    print(f"Batch size: {batch_size}")
+    print(f"Pause: {pause_seconds}s")
+    print(f"Maximum batches: {max_batches}")
+    print(
+        "Mode:",
+        "APPLY (live Gmail writes)" if apply else "DRY RUN (no Gmail writes)",
+    )
     print()
 
-    for batch_number in range(1, MAX_BATCHES + 1):
-        before = count_decisions()
+    if not apply:
+        print(
+            "Refusing live writes. Re-run with APPLY_MIGRATION=true "
+            "after you have reviewed a dry-run."
+        )
+        print(
+            "Tip: APPLY_MIGRATION=false python migration_runner.py "
+            "still classifies into validation.jsonl when DRY_RUN=true."
+        )
+
+    log_path_for_summary = VALIDATION if not apply else DECISIONS
+
+    for batch_number in range(1, max_batches + 1):
+        before = count_rows(log_path_for_summary)
 
         log_path = ROOT / f"migration-run-batch-{batch_number:03}.log"
 
         env = os.environ.copy()
-        env["MAX_RESULTS"] = str(BATCH_SIZE)
-        env["DRY_RUN"] = "false"
+        env["MAX_RESULTS"] = str(batch_size)
+        # Explicit opt-in mirrors migration_reset.py's APPLY_MIGRATION_RESET.
+        env["DRY_RUN"] = "false" if apply else "true"
 
         print(
             f"[{datetime.now().strftime('%H:%M:%S')}] "
@@ -85,9 +120,10 @@ def main():
                 env=env,
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
+                timeout=900,
             )
 
-        after = count_decisions()
+        after = count_rows(log_path_for_summary)
         added = after - before
 
         if result.returncode != 0:
@@ -103,18 +139,31 @@ def main():
             print("\n".join(lines[-80:]))
             sys.exit(result.returncode or 1)
 
-        if added == 0:
+        log_text = log_path.read_text(errors="replace")
+        queue_empty = "Inbox is empty." in log_text
+
+        if added == 0 and queue_empty:
             print()
             print("✓ No unprocessed inbox threads remain.")
-            print("✓ Migration complete.")
+            print("✓ Migration complete." if apply else "✓ Dry-run complete.")
             return
 
-        summary = summarize_new_rows(before)
+        if added == 0 and not queue_empty:
+            print()
+            print(
+                "❌ No new decision rows were written, but the inbox query "
+                "was not empty. Refusing to mark migration complete."
+            )
+            print(f"Log: {log_path.name}")
+            sys.exit(1)
+
+        summary = summarize_new_rows(log_path_for_summary, before)
 
         print(
             f"✓ Batch {batch_number}: "
             f"{summary['processed']} processed, "
-            f"{summary['archived']} archived, "
+            f"{summary.get('would_archive', summary['archived'])} "
+            f"{'would archive' if not apply else 'archived'}, "
             f"{summary['review']} review"
         )
 
@@ -127,7 +176,7 @@ def main():
             )
             print(f"  {label_text}")
 
-        if added < BATCH_SIZE:
+        if added < batch_size:
             print()
             print(
                 f"Batch returned only {added} thread(s). "
@@ -135,14 +184,14 @@ def main():
             )
         else:
             print(
-                f"Waiting {PAUSE_SECONDS}s before next batch..."
+                f"Waiting {pause_seconds}s before next batch..."
             )
 
-        time.sleep(PAUSE_SECONDS)
+        time.sleep(pause_seconds)
 
     print()
     print(
-        f"Stopped after safety limit of {MAX_BATCHES} batches."
+        f"Stopped after safety limit of {max_batches} batches."
     )
     print(
         "Run the migration runner again if unprocessed mail remains."

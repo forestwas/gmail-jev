@@ -273,6 +273,7 @@ Do this once per Google Cloud project / mailbox.
    - Choose **External** (or Internal if you use Google Workspace and it fits your org).  
    - Fill required app name / support email.  
    - Add your Google account as a **test user** while the app is in Testing.  
+   - **Important:** While the OAuth app remains in **Testing**, Google expires test-user grants after about **7 days** (including refresh tokens). Scheduled workers will then fail until you re-authorize (`python gmail_test.py` or run `main.py` and complete the browser flow again). For long-lived unattended use, publish the app or plan to re-auth periodically.  
 5. Open **APIs & Services → Credentials → Create credentials → OAuth client ID**.  
    - Application type: **Desktop app**.  
    - Create, then **Download JSON**.  
@@ -288,7 +289,7 @@ The app requests this scope:
 https://www.googleapis.com/auth/gmail.modify
 ```
 
-That allows reading mail and changing labels / inbox membership. It does **not** send email as you unless you add other scopes (this project does not).
+**What the code does vs what the token can do:** `gmail-jev` only uses this token to read threads and change labels / Inbox membership. It contains **no** send-mail code. However, Google documents [`gmail.modify`](https://developers.google.com/workspace/gmail/api/auth/scopes) as allowing *read, compose, and send*. Treat `token.json` as a high-privilege secret and protect it accordingly.
 
 ### 5. Optional: known clients file
 
@@ -369,10 +370,12 @@ Default search: inbox threads that do **not** already have any of the workflow l
 
 | Script | Role |
 | --- | --- |
-| `live_worker.py` | Recent inbox (`newer_than:2d`). Uses Gmail history to re-queue threads that got new messages. |
+| `live_worker.py` | Recent inbox (`newer_than:1d`). Uses Gmail history to re-queue threads that got new messages. |
 | `backfill_worker.py` | Older unprocessed inbox (`older_than:1d`), one batch per run. |
 
-Both call `main.py` with an appropriate `GMAIL_QUERY` and use file locks so overlapping runs exit safely.
+Both call `main.py` with an appropriate `GMAIL_QUERY`, share a single `.worker.lock` so they cannot run at the same time, and exit non-zero on failure.
+
+**Platform note:** continuous workers use `fcntl` file locks and currently target macOS/Linux. `main.py` itself can run on Windows; scheduled workers do not.
 
 Suggested cadence: live every few minutes; backfill hourly (or less often).
 
@@ -539,7 +542,7 @@ Tips:
 | Goal | How |
 | --- | --- |
 | One-off custom search | `GMAIL_QUERY='in:inbox newer_than:7d' python main.py` |
-| Live window | `LIVE_QUERY` builder in `workflow.py` (`newer_than:2d`) |
+| Live window | `LIVE_QUERY` builder in `workflow.py` (`newer_than:1d`) |
 | Backfill window | `BACKFILL_QUERY` (`older_than:1d`) |
 | Batch size | `MAX_RESULTS` |
 
@@ -555,12 +558,13 @@ Edit `clients.local.json` (or point `KNOWN_CLIENTS_FILE` elsewhere). No code dep
 | --- | --- | --- |
 | `TYPESAFE_API_KEY` | _(required)_ | TypeSafe API access |
 | `MAILBOX_OWNER_NAME` | `the mailbox owner` | Name used in Jev prompt framing |
-| `DRY_RUN` | `false` in code / `true` in `.env.example` | Classify without Gmail writes |
+| `DRY_RUN` | `true` (fail-closed) | Classify without Gmail writes; set `false` to apply |
 | `MAX_RESULTS` | `100` | Threads per `main.py` run |
 | `GMAIL_QUERY` | inbox excluding workflow labels | Override Gmail search |
 | `KNOWN_CLIENTS_FILE` | `clients.local.json` | Known-client boosts |
 | `GMAIL_RETRY_ATTEMPTS` | `6` | Retries for rate limits / transient errors |
 | `APPLY_MIGRATION_RESET` | `false` | Allow `migration_reset.py` to remove labels |
+| `APPLY_MIGRATION` | `false` | Allow `migration_runner.py` live Gmail writes |
 | `MIGRATION_BATCH_SIZE` | `100` | `migration_runner.py` batch size |
 | `MIGRATION_PAUSE_SECONDS` | `60` | Pause between migration batches |
 | `MIGRATION_MAX_BATCHES` | `50` | Safety stop for migration runner |
@@ -596,9 +600,14 @@ python migration_reset.py
 # Remove current + legacy workflow labels from matching inbox threads
 APPLY_MIGRATION_RESET=true python migration_reset.py
 
-# Process unprocessed inbox in batches until empty (or safety limit)
+# Classify remaining inbox in batches WITHOUT writing labels (default)
 python migration_runner.py
+
+# Apply live label/archive writes in batches (explicit opt-in)
+APPLY_MIGRATION=true python migration_runner.py
 ```
+
+`migration_runner.py` defaults to dry-run. It will **not** set `DRY_RUN=false` unless `APPLY_MIGRATION=true`. If Jev fails on threads, the runner exits non-zero instead of claiming “migration complete.”
 
 Snapshots and decision logs may contain thread IDs and subjects — keep them private (gitignored).
 
@@ -627,7 +636,9 @@ No. You run it on your machine (or your own server). Your mail and keys stay und
 
 ### Will it send email or delete messages?
 
-No. It uses `gmail.modify` to add/remove labels and optionally remove the Inbox label (archive). It does not send messages and does not trash/delete threads.
+`gmail-jev` does **not** contain code that sends email or permanently deletes threads. It applies labels and may remove `INBOX` (archive).
+
+The OAuth scope it requests (`gmail.modify`) is still broader: Google documents it as allowing read, compose, and send. Protect `token.json` accordingly.
 
 ### What is Jev / TypeSafe?
 
@@ -635,11 +646,15 @@ No. It uses `gmail.modify` to add/remove labels and optionally remove the Inbox 
 
 ### Dry-run still created labels in Gmail — why?
 
-It should not. In dry-run, label IDs are placeholders (`DRYRUN::…`) and `threads.modify` is skipped. If you see real label changes, confirm `DRY_RUN` is `true`/`1`/`yes` in the environment for that process.
+It should not. With `DRY_RUN=true` (the code default), `main.py` skips `threads.modify`, and `live_worker.py` only logs would-be re-queues instead of removing labels. If you see real label changes, confirm the process actually has `DRY_RUN=true` (and that you did not set `APPLY_MIGRATION=true` / `APPLY_MIGRATION_RESET=true`).
 
 ### OAuth consent screen says the app is unverified
 
-Expected for personal/desktop use in Testing mode. Add your Google account as a test user. For broader distribution you would need Google verification — not required for personal use.
+Expected for personal/desktop use in Testing mode. Add your Google account as a test user. **Testing grants expire after about 7 days** — re-run `python gmail_test.py` (or `main.py`) to refresh authorization. For broader distribution you would need Google verification.
+
+### Does this run on Windows?
+
+`main.py` / dry-runs can. Continuous `live_worker.py` / `backfill_worker.py` currently require `fcntl` (macOS/Linux).
 
 ### `credentials.json` vs `token.json`
 
@@ -648,7 +663,7 @@ Expected for personal/desktop use in Testing mode. Add your Google account as a 
 | `credentials.json` | OAuth **client** secrets from Google Cloud (app identity) |
 | `token.json` | **Your** authorized user token after browser login |
 
-Both are secret. Only `credentials.json` is downloaded from Google; `token.json` is created locally.
+Both are secret. Only `credentials.json` is downloaded from Google; `token.json` is created locally by `gmail_test.py` or `main.py`.
 
 ### Gmail quota / rate limit errors
 
@@ -660,8 +675,8 @@ Common causes:
 
 - They already have a workflow label (excluded by default query).  
 - `GMAIL_QUERY` is too narrow.  
-- Live worker only looks at `newer_than:2d` unless you run backfill / full `main.py`.  
-- Another process holds the lock file (`.live.lock` / `.backfill.lock`).
+- Live worker only looks at `newer_than:1d` unless you run backfill / full `main.py`.  
+- Another process holds the shared lock file (`.worker.lock`).
 
 ### How do I reprocess a thread?
 

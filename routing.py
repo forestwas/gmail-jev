@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 MESSAGE_TYPE_THRESHOLDS = {
     "finance": 0.40,
     "calendar": 0.60,
@@ -11,6 +13,18 @@ MESSAGE_TYPE_THRESHOLDS = {
     "file_share": 0.40,
 }
 
+_EMAIL_RE = re.compile(
+    r"[A-Z0-9._%+-]+@([A-Z0-9.-]+\.[A-Z]{2,})",
+    re.IGNORECASE,
+)
+
+
+def _header_domains(participant_headers: str) -> set[str]:
+    return {
+        match.group(1).lower()
+        for match in _EMAIL_RE.finditer(participant_headers or "")
+    }
+
 
 def find_known_client_matches(
     clients: list[dict],
@@ -18,11 +32,12 @@ def find_known_client_matches(
     thread_text: str,
     participant_headers: str,
 ) -> list[str]:
-    haystack = "\n".join(
+    """Match domains against From/To/Cc addresses; keywords against subject/body."""
+    domains_in_headers = _header_domains(participant_headers)
+    keyword_haystack = "\n".join(
         [
             subject or "",
             thread_text or "",
-            participant_headers or "",
         ]
     ).lower()
 
@@ -30,7 +45,7 @@ def find_known_client_matches(
 
     for client in clients:
         domains = [
-            value.strip().lower()
+            value.strip().lower().lstrip("@")
             for value in client.get("domains", [])
             if value.strip()
         ]
@@ -40,7 +55,10 @@ def find_known_client_matches(
             if value.strip()
         ]
 
-        if any(value in haystack for value in domains + keywords):
+        domain_hit = any(domain in domains_in_headers for domain in domains)
+        keyword_hit = any(keyword in keyword_haystack for keyword in keywords)
+
+        if domain_hit or keyword_hit:
             matches.append(client.get("name", "Unknown client"))
 
     return matches
